@@ -310,8 +310,8 @@ jobs:
                       manufacturer: "Kodak Alaris",
                       codeName: "400VC / E-4050",
                       datasheetReference: "Kodak Tech Pub E-4050 (Status M Densitometry)",
-                      processType: .C41ColorNegative,
-                      grainMorphology: .Tabular,
+                      processType: .c41ColorNegative,
+                      grainMorphology: .tabular,
                       nominalISO: 400.0,
                       nativeWhiteBalanceK: 5500,
                       defaultDeveloperName: "Kodak Flexicolor C-41",
@@ -345,8 +345,8 @@ jobs:
                       manufacturer: "Eastman Kodak",
                       codeName: "400TX / F-4017",
                       datasheetReference: "Kodak Tech Pub F-4017 (D-76 1:1 @ 20°C)",
-                      processType: .BWMonochromeNegative,
-                      grainMorphology: .Cubic,
+                      processType: .bwMonochromeNegative,
+                      grainMorphology: .cubic,
                       nominalISO: 400.0,
                       nativeWhiteBalanceK: 5500,
                       defaultDeveloperName: "Kodak D-76 (1+1) / HC-110B",
@@ -380,8 +380,8 @@ jobs:
                       manufacturer: "Eastman Kodak",
                       codeName: "400TMY-2 / F-4043",
                       datasheetReference: "Kodak Tech Pub F-4043 (T-Grain Emulsion)",
-                      processType: .BWMonochromeNegative,
-                      grainMorphology: .Tabular,
+                      processType: .bwMonochromeNegative,
+                      grainMorphology: .tabular,
                       nominalISO: 400.0,
                       nativeWhiteBalanceK: 5500,
                       defaultDeveloperName: "Kodak T-Max Developer (1+4)",
@@ -415,8 +415,8 @@ jobs:
                       manufacturer: "Harman / Ilford Photo",
                       codeName: "HP5+ 400/27°",
                       datasheetReference: "Ilford HP5 Plus Technical Sheet (ID-11 / Microphen)",
-                      processType: .BWMonochromeNegative,
-                      grainMorphology: .Cubic,
+                      processType: .bwMonochromeNegative,
+                      grainMorphology: .cubic,
                       nominalISO: 400.0,
                       nativeWhiteBalanceK: 5500,
                       defaultDeveloperName: "Ilford ID-11 / Microphen (Push)",
@@ -450,8 +450,8 @@ jobs:
                       manufacturer: "Fujifilm Corp.",
                       codeName: "RVP50 / ISO 50/18°",
                       datasheetReference: "Fujifilm Professional Film Data Guide (RVP50 Status A)",
-                      processType: .E6ColorReversal,
-                      grainMorphology: .FineE6,
+                      processType: .e6ColorReversal,
+                      grainMorphology: .fineE6,
                       nominalISO: 50.0,
                       nativeWhiteBalanceK: 5500,
                       defaultDeveloperName: "Fujichrome E-6 First & Color Dev",
@@ -485,8 +485,8 @@ jobs:
                       manufacturer: "Fujifilm Corp.",
                       codeName: "RDPIII / ISO 100/21°",
                       datasheetReference: "Fujifilm Datasheet RDPIII (RMS 8, Zero Reciprocity to 128s)",
-                      processType: .E6ColorReversal,
-                      grainMorphology: .FineE6,
+                      processType: .e6ColorReversal,
+                      grainMorphology: .fineE6,
                       nominalISO: 100.0,
                       nativeWhiteBalanceK: 5500,
                       defaultDeveloperName: "Fujichrome E-6 Standard",
@@ -520,8 +520,8 @@ jobs:
                       manufacturer: "Eastman Kodak / CineStill",
                       codeName: "5219 / 800T Tungsten",
                       datasheetReference: "Kodak H-1-5219 Tech Data (DLT + Sub-Micron + Remjet-Free Halation)",
-                      processType: .C41CrossRemjetFree,
-                      grainMorphology: .Tabular,
+                      processType: .c41CrossRemjetFree,
+                      grainMorphology: .tabular,
                       nominalISO: 800.0,
                       nativeWhiteBalanceK: 3200, // Tungsten balanced
                       defaultDeveloperName: "C-41 Cross-Process (Remjet Removed)",
@@ -1085,10 +1085,10 @@ jobs:
                           Spacer()
           
                           Button {
-                              renderEngine.enlargerHeadType = (renderEngine.enlargerHeadType == .Condenser) ? .Diffuser : .Condenser
+                              renderEngine.enlargerHeadType = (renderEngine.enlargerHeadType == .condenser) ? .diffuser : .condenser
                               motionAndHaptics.playApertureDetentClick()
                           } label: {
-                              Text(renderEngine.enlargerHeadType == .Condenser ? "HEAD: CONDENSER (Q=1.16)" : "HEAD: DIFFUSER (Q=1.00)")
+                              Text(renderEngine.enlargerHeadType == .condenser ? "HEAD: CONDENSER (Q=1.16)" : "HEAD: DIFFUSER (Q=1.00)")
                                   .font(.system(size: 9, weight: .bold, design: .monospaced))
                                   .padding(.horizontal, 8)
                                   .padding(.vertical, 5)
@@ -1098,7 +1098,7 @@ jobs:
                           }
                       }
           
-                      if renderEngine.selectedFilm.processType == .BWMonochromeNegative {
+                      if renderEngine.selectedFilm.processType == .bwMonochromeNegative {
                           // Ilford Multigrade 00-5 Contrast Filter & Chemical Toner
                           HStack(spacing: 14) {
                               VStack(alignment: .leading, spacing: 2) {
@@ -1114,10 +1114,10 @@ jobs:
                                       .font(.system(size: 10, weight: .bold, design: .monospaced))
                                       .foregroundColor(.white)
                                   Picker("Toner", selection: $renderEngine.chemicalToner) {
-                                      Text("None").tag(ChemicalTonerType.None)
-                                      Text("Selenium").tag(ChemicalTonerType.Selenium)
-                                      Text("Sepia").tag(ChemicalTonerType.Sepia)
-                                      Text("Gold").tag(ChemicalTonerType.Gold)
+                                      Text("None").tag(ChemicalTonerType.none)
+                                      Text("Selenium").tag(ChemicalTonerType.selenium)
+                                      Text("Sepia").tag(ChemicalTonerType.sepia)
+                                      Text("Gold").tag(ChemicalTonerType.gold)
                                   }
                                   .pickerStyle(.segmented)
                               }
@@ -2041,14 +2041,21 @@ jobs:
           #ifndef ShaderBridgeTypes_h
           #define ShaderBridgeTypes_h
           
+          #include <simd/simd.h>
+          
           #ifdef __METAL_VERSION__
           #define NS_ENUM(_type, _name) enum _name : _type _name; enum _name : _type
           #define NSInteger metal::int32_t
           #include <metal_stdlib>
           using namespace metal;
+          typedef float2 BridgeFloat2;
+          typedef float3 BridgeFloat3;
+          typedef float3x3 BridgeFloat3x3;
           #else
           #import <Foundation/Foundation.h>
-          #import <simd/simd.h>
+          typedef simd_float2 BridgeFloat2;
+          typedef simd_float3 BridgeFloat3;
+          typedef simd_float3x3 BridgeFloat3x3;
           #endif
           
           // Grain Morphology Enum matching authentic silver halide crystal structures
@@ -2115,10 +2122,10 @@ jobs:
               float shoulderCurvatureRGB[3];  // Shoulder roll-off latitude (+4 EV retention)
               
               // Spectral Sensitivity Cross-Talk Matrix (Linear ACEScg -> Emulsion Layer Actinic Exposure)
-              simd_float3x3 spectralMatrix;
+              BridgeFloat3x3 spectralMatrix;
               
               // DIR (Development Inhibitor Releasing) Couplers Inter-Image Matrix (3x3 with negative off-diagonals)
-              simd_float3x3 dirCouplerMatrix;
+              BridgeFloat3x3 dirCouplerMatrix;
               
               // Anti-Halation & Base Scatter Parameters
               float halationReflectance;      // Red layer back-scatter intensity (0.04 for Portra, 0.38 for Remjet-free CineStill 800T)
@@ -2159,7 +2166,7 @@ jobs:
               float paperGamma;               // Intrinsic paper slope
               
               // Physical Dodging & Burning Interactive Radial Tool
-              simd_float2 dodgeBurnCenterUV;  // Normalized (0..1, 0..1) center of enlarger hand/card tool
+              BridgeFloat2 dodgeBurnCenterUV; // Normalized (0..1, 0..1) center of enlarger hand/card tool
               float dodgeBurnRadius;          // Normalized radius
               float dodgeBurnFeather;         // Feather softness
               float dodgeBurnStops;           // Negative = Dodge (hold back light), Positive = Burn (add light)
@@ -2169,7 +2176,7 @@ jobs:
               float tonerIntensity;           // 0.0 - 1.0
               int32_t enableZoneFalseColor;   // 1 = Render Ansel Adams Zone System (Zone 0 - Zone X) false color overlay
               int32_t enableFocusPeaking;     // 1 = Highlight in-focus high-frequency edges
-              simd_float2 spotMeterTargetUV;  // 1-degree Spot Meter reticle UV coordinates
+              BridgeFloat2 spotMeterTargetUV; // 1-degree Spot Meter reticle UV coordinates
           };
           
           // Real-time Telemetry Readback Buffer (GPU -> CPU at 120Hz)
@@ -2233,7 +2240,7 @@ jobs:
               @Published var agitationFactor: Float = 0.85
           
               // Darkroom Enlarger & Print Parameters
-              @Published var enlargerHeadType: EnlargerLightHeadType = .Diffuser
+              @Published var enlargerHeadType: EnlargerLightHeadType = .diffuser
               @Published var enlargerExposureTimeEV: Float = 0.0
               @Published var filterYellowCC: Float = 0.0
               @Published var filterMagentaCC: Float = 0.0
@@ -2241,7 +2248,7 @@ jobs:
               @Published var multigradeFilterNumber: Float = 2.0 // Grade 2 Neutral
               @Published var enableSplitGrade: Bool = false
               @Published var splitGradeSoftBalance: Float = 0.5
-              @Published var chemicalToner: ChemicalTonerType = .None
+              @Published var chemicalToner: ChemicalTonerType = .none
               @Published var tonerIntensity: Float = 0.55
           
               // Dodging & Burning Tool
@@ -2370,11 +2377,11 @@ jobs:
                   ratedEI = stock.nominalISO
                   developerTemperatureC = stock.defaultDeveloperTempC
                   developmentTimeScale = 1.0
-                  if stock.processType == .BWMonochromeNegative {
+                  if stock.processType == .bwMonochromeNegative {
                       if !selectedPaper.isMonochromeMultigrade {
                           selectedPaper = FilmStockDatabase.allPapers.first(where: { $0.isMonochromeMultigrade }) ?? selectedPaper
                       }
-                  } else if stock.processType == .C41ColorNegative || stock.processType == .C41CrossRemjetFree || stock.processType == .ECN2CinemaNegative {
+                  } else if stock.processType == .c41ColorNegative || stock.processType == .c41CrossRemjetFree || stock.processType == .ecn2CinemaNegative {
                       if selectedPaper.isMonochromeMultigrade {
                           selectedPaper = FilmStockDatabase.allPapers.first(where: { !$0.isMonochromeMultigrade }) ?? selectedPaper
                       }
