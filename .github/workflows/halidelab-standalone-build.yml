@@ -1,0 +1,3059 @@
+name: Build HalideLabPro iOS IPA (Standalone Zero-Unzip Workflow)
+
+on:
+  push:
+    branches: [ "main", "master" ]
+    tags: [ "v*" ]
+  workflow_dispatch:
+    inputs:
+      runner_image:
+        description: "GitHub Actions macOS Runner (macOS 14 is retired)"
+        required: true
+        default: "macos-15"
+        type: choice
+        options:
+          - macos-15
+          - macos-26
+          - macos-latest
+      build_configuration:
+        description: "Build Configuration"
+        required: true
+        default: "Release"
+        type: choice
+        options:
+          - Release
+          - Debug
+      create_github_release:
+        description: "Publish direct-download .ipa to GitHub Releases (No-Unzip Direct Download)"
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-standalone-ipa:
+    name: Synthesize Project, Compile Metal 3 & Build Direct .ipa
+    # GitHub Actions retired macos-14; defaults to macos-15 (Apple Silicon arm64)
+    runs-on: ${{ inputs.runner_image || 'macos-15' }}
+    timeout-minutes: 30
+
+    env:
+      PROJECT_NAME: HalideLabPro
+      SCHEME_NAME: HalideLabPro
+      CONFIGURATION: ${{ inputs.build_configuration || 'Release' }}
+      DERIVED_DATA_PATH: ${{ github.workspace }}/DerivedData
+
+    steps:
+      - name: Checkout Repository (Optional if only this YAML exists)
+        uses: actions/checkout@v4
+
+      - name: Synthesize Full HalideLabPro iOS Source Tree (Zero-Unzip Self-Extracting Step)
+        shell: bash
+        run: |
+          echo "=== Generating HalideLabPro iOS Project Structure Directly from Workflow ==="
+          mkdir -p HalideLabPro/App \
+                   HalideLabPro/Bridge \
+                   HalideLabPro/Shaders \
+                   HalideLabPro/Models \
+                   HalideLabPro/Camera \
+                   HalideLabPro/Engine \
+                   HalideLabPro/Hardware \
+                   HalideLabPro/UI \
+                   HalideLabPro/Resources/Assets.xcassets/AppIcon.appiconset
+
+          cat << 'EOF_HALIDE_FILE' > "README.md"
+          # HalideLab Pro — First-Principles Physical Optics, Film Sensitometry & Darkroom Camera for iPhone 13 Pro Max
+          
+          **HalideLab Pro** is a native iOS application written in **Swift 5.10** and **Apple Metal Compute Shaders** engineered specifically for the **iPhone 13 Pro Max** (A15 Bionic 5-core GPU, 16-core Neural Engine, 6GB LPDDR4X unified memory, 120Hz ProMotion Super Retina XDR display, and 13mm / 26mm / 77mm + LiDAR optical system).
+          
+          Unlike LUT-based filter apps, HalideLab Pro models the complete physical and chemical chain of analog photography in **16-bit scene-linear floating-point radiance (`RGBA16Float` ACEScg)**:
+          
+          1. **Physical Optics Pass (`k_physical_optics_pass`)**:
+             - Hardware calibration for iPhone 13 Pro Max **26mm $f/1.5$ Wide ($1.9\mu\text{m}$ pixels, Sensor-Shift OIS)**, **13mm $f/1.8$ Ultra Wide**, and **77mm $f/2.8$ Telephoto**.
+             - Real-time LiDAR + Dual-Pixel PDAF depth map synchronization (`AVCaptureDataOutputSynchronizer`) driving exact Gaussian thick-lens **Circle of Confusion (CoC)** bokeh, N-blade polygonal iris geometry, mechanical **Cat's Eye optical vignetting**, over/under-corrected **spherical aberration**, aspherical onion-ring micro-grooves, **$\cos^4(\theta)$ natural illumination falloff**, lateral chromatic aberration, and **Fraunhofer aperture diffraction starbursts** ($f/8 - f/22$).
+          2. **Authoritative Film Emulsion Sensitometry Pass (`k_film_emulsion_pass`)**:
+             - Hardcoded sensitometric parameters digitized from official **Kodak**, **Fujifilm**, and **Ilford** technical data sheets:
+               - **Kodak Professional Portra 400** (Pub E-4050, C-41, $\sigma_D = 11$, Orange Mask, T-Grain)
+               - **Kodak Professional Tri-X 400** (Pub F-4017, B&W D-76, $\sigma_D = 17$, Classic Cubic Grain)
+               - **Kodak Professional T-Max 400** (Pub F-4043, B&W T-Max Dev, $\sigma_D = 10$, T-Grain, high Eberhard acutance)
+               - **Ilford HP5 Plus 400** (Harman Tech Sheet, ID-11 / Microphen push to EI 3200, $\sigma_D = 16$)
+               - **Fujifilm Fujichrome Velvia 50** (RVP50 Data Guide, E-6 Reversal, $\sigma_D = 9$, $D_{\max} > 3.6$)
+               - **Fujifilm Fujichrome Provia 100F** (RDPIII Data Sheet, E-6 Reversal, $\sigma_D = 8$, zero reciprocity failure to 128s)
+               - **Kodak Vision3 500T (5219) / CineStill 800T** (Pub H-1-5219, 3200K Tungsten, Remjet-free C-41 cross-process with double-exponential red halation corona)
+             - Implements **Hurter-Driffield (H-D) characteristic curves**, **Schwarzschild reciprocity failure** ($E_{\text{eff}} = E \cdot t^p$), **Arrhenius chemical development kinetics** (temperature, push/pull time, and stand-development bromide drag / Eberhard Mackie lines), **DIR coupler inter-image $3\times 3$ matrices**, and **3D Monte Carlo Poisson/Gabor cellular silver halide grain** coupled to Selwyn's Law.
+          3. **Darkroom Enlarger & Photographic Paper Print Pass (`k_darkroom_enlarger_print_pass`)**:
+             - Condenser ($Q = 1.16$) vs. Diffuser ($Q = 1.00$) enlarger light head Callier scattering.
+             - **RA-4 Color Head** with subtractive **Yellow / Magenta / Cyan (0–200 CC)** dichroic filtration on **Kodak Endura Premier (E-4070)** and **Kodak Ektacolor Edge (E-7020)** papers.
+             - **Ilford Multigrade RC Deluxe & Fibre Base Warmtone** variable-contrast B&W papers with **Grades 00 to 5** filtration, **Split-Grade Printing**, physical **Dodging & Burning** exposure wands, and **Selenium / Sepia / Gold chemical toning**.
+             - Built-in **Ansel Adams $1^\circ$ Spot Meter & Zone System (Zone 0 – Zone X)** false-color overlay and **CoreHaptics** mechanical detents.
+          
+          ---
+          
+          ## Building Automatically with GitHub Actions (`macos-15` / `macos-26`)
+          
+          > **Important Note on GitHub Actions Runners**: GitHub has retired the `macos-14` runner image. The included workflow `.github/workflows/ios-build.yml` targets **`macos-15`** (Apple Silicon arm64) by default and also supports `macos-26` and `macos-latest` via manual dispatch.
+          
+          ### Quick Steps to Compile Your `.ipa` on GitHub:
+          1. Create a new GitHub repository and push all files in this directory to the `main` branch.
+          2. Navigate to the **Actions** tab in your GitHub repository and select **Build HalideLabPro iOS App (iPhone 13 Pro Max Edition)**.
+          3. The workflow automatically:
+             - Runs `xcodegen generate` using `project.yml` to synthesize `HalideLabPro.xcodeproj`.
+             - Pre-compiles and validates `AnalogPipelineShaders.metal` into an iOS Metal library (`default.metallib`) targeting A15 Bionic.
+             - Compiles the full Release iOS app bundle and packages an installable `HalideLabPro-Release-Unsigned.ipa` artifact (ready for sideloading via AltStore, SideStore, Sideloadly, TrollStore, or re-signing with your Apple Developer certificate).
+          EOF_HALIDE_FILE
+
+          cat << 'EOF_HALIDE_FILE' > "project.yml"
+          name: HalideLabPro
+          options:
+            bundleIdPrefix: com.halidelab
+            deploymentTarget:
+              iOS: "16.0"
+            xcodeVersion: "16.0"
+            createIntermediateGroups: true
+            generateEmptyDirectories: true
+          
+          settings:
+            base:
+              SWIFT_VERSION: "5.10"
+              IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+              TARGETED_DEVICE_FAMILY: "1" # iPhone Optimized (specifically iPhone 13 Pro Max 6.7" 120Hz XDR)
+              SUPPORTS_MACCATALYST: NO
+              SWIFT_OBJC_BRIDGING_HEADER: "HalideLabPro/Bridge/ShaderBridgeTypes.h"
+              MTL_FAST_MATH: YES
+              MTL_LANGUAGE_REVISION: "Metal24"
+              GCC_OPTIMIZATION_LEVEL: "s"
+              SWIFT_OPTIMIZATION_LEVEL: "-O"
+          
+          targets:
+            HalideLabPro:
+              type: application
+              platform: iOS
+              deploymentTarget: "16.0"
+              sources:
+                - path: HalideLabPro
+                  excludes:
+                    - "**/*.md"
+              info:
+                path: HalideLabPro/Resources/Info.plist
+                properties:
+                  CFBundleDisplayName: "HalideLab Pro"
+                  CFBundleShortVersionString: "1.0.0"
+                  CFBundleVersion: "100"
+                  LSRequiresIPhoneOS: true
+                  UIRequiresFullScreen: true
+                  UIStatusBarHidden: true
+                  UIViewControllerBasedStatusBarAppearance: false
+                  CADisableMinimumFrameDurationOnPhone: true # Unlock 120Hz ProMotion on iPhone 13 Pro Max
+                  UILaunchScreen:
+                    UIColorName: ""
+                  UISupportedInterfaceOrientations:
+                    - UIInterfaceOrientationPortrait
+                  NSCameraUsageDescription: "HalideLab Pro requires direct hardware access to iPhone 13 Pro Max 13mm, 26mm, and 77mm sensors and LiDAR scanner for 12-bit Pure Bayer RAW capture and physical optical simulation."
+                  NSPhotoLibraryAddUsageDescription: "HalideLab Pro saves 12-bit DNG negatives, non-destructive darkroom sidecar recipes, and 16-bit Display P3 prints to your Photo Library."
+                  NSPhotoLibraryUsageDescription: "HalideLab Pro accesses your negatives and contact sheets for darkroom printing."
+                  NSMotionUsageDescription: "HalideLab Pro uses the 3-axis gyroscope for the precision dual-ring horizon level and exposure stability estimation."
+              settings:
+                base:
+                  PRODUCT_BUNDLE_IDENTIFIER: com.halidelab.pro.iphone13promax
+                  INFOPLIST_FILE: HalideLabPro/Resources/Info.plist
+                  ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+                  ENABLE_BITCODE: NO
+              dependencies:
+                - sdk: AVFoundation.framework
+                - sdk: Metal.framework
+                - sdk: MetalKit.framework
+                - sdk: MetalPerformanceShaders.framework
+                - sdk: CoreImage.framework
+                - sdk: CoreMedia.framework
+                - sdk: CoreVideo.framework
+                - sdk: CoreMotion.framework
+                - sdk: CoreHaptics.framework
+                - sdk: Accelerate.framework
+                - sdk: Photos.framework
+                - sdk: ImageIO.framework
+                - sdk: UniformTypeIdentifiers.framework
+          EOF_HALIDE_FILE
+
+          cat << 'EOF_HALIDE_FILE' > "HalideLabPro/Resources/Assets.xcassets/Contents.json"
+          {
+            "info" : {
+              "author" : "xcode",
+              "version" : 1
+            }
+          }
+          EOF_HALIDE_FILE
+
+          cat << 'EOF_HALIDE_FILE' > "HalideLabPro/Resources/Assets.xcassets/AppIcon.appiconset/Contents.json"
+          {
+            "images" : [
+              {
+                "idiom" : "universal",
+                "platform" : "ios",
+                "size" : "1024x1024"
+              }
+            ],
+            "info" : {
+              "author" : "xcode",
+              "version" : 1
+            }
+          }
+          EOF_HALIDE_FILE
+
+          cat << 'EOF_HALIDE_FILE' > "HalideLabPro/Models/FilmStockDatabase.swift"
+          import Foundation
+          import simd
+          
+          /// Represents an authentic real-world film emulsion digitized from manufacturer technical data sheets.
+          struct FilmStockDescriptor: Identifiable, Hashable {
+              let id: String
+              let displayName: String
+              let manufacturer: String
+              let codeName: String
+              let datasheetReference: String
+              let processType: FilmProcessType
+              let grainMorphology: GrainMorphologyType
+              let nominalISO: Float
+              let nativeWhiteBalanceK: Int
+              let defaultDeveloperName: String
+              let defaultDeveloperTempC: Float
+              
+              // H-D Curve Parameters (Red/Cyan, Green/Magenta, Blue/Yellow)
+              let dMinRGB: SIMD3<Float>
+              let dMaxRGB: SIMD3<Float>
+              let gammaRGB: SIMD3<Float>
+              let logH0RGB: SIMD3<Float>
+              let toeCurvatureRGB: SIMD3<Float>
+              let shoulderCurvatureRGB: SIMD3<Float>
+              
+              // Schwarzschild Reciprocity Failure Exponent p (H_eff = E * t^p)
+              let reciprocityExponentRGB: SIMD3<Float>
+              
+              // Spectral Sensitivity Cross-Talk & DIR Couplers Inter-Image Matrix
+              let spectralRow0: SIMD3<Float>
+              let spectralRow1: SIMD3<Float>
+              let spectralRow2: SIMD3<Float>
+              let dirCouplerRow0: SIMD3<Float>
+              let dirCouplerRow1: SIMD3<Float>
+              let dirCouplerRow2: SIMD3<Float>
+              
+              // Halation & Microstructure
+              let halationReflectance: Float
+              let halationGreenLeak: Float
+              let halationThreshold: Float
+              let halationRadiusPixels: Float
+              let diffuseRMSGranularity: Float // Official Diffuse RMS Granularity (sigma_D * 1000 at D=1.0, 48um aperture)
+              let eberhardEdgeBoost: Float
+              let mtf50CyclesPerMM: Float
+          
+              func buildUniforms(
+                  ratedEI: Float,
+                  shutterSeconds: Float,
+                  devTempC: Float,
+                  devTimeScale: Float,
+                  agitation: Float,
+                  frameSeed: UInt32
+              ) -> FilmEmulsionUniforms {
+                  var u = FilmEmulsionUniforms()
+                  u.processType = processType.rawValue
+                  u.grainMorphology = grainMorphology.rawValue
+                  u.isoNominal = nominalISO
+                  u.exposureIndexRated = ratedEI
+                  u.exposureTimeSeconds = shutterSeconds
+                  u.reciprocityExponentRGB = (reciprocityExponentRGB.x, reciprocityExponentRGB.y, reciprocityExponentRGB.z)
+                  u.dMinRGB = (dMinRGB.x, dMinRGB.y, dMinRGB.z)
+                  u.dMaxRGB = (dMaxRGB.x, dMaxRGB.y, dMaxRGB.z)
+                  u.gammaRGB = (gammaRGB.x, gammaRGB.y, gammaRGB.z)
+                  u.logH0RGB = (logH0RGB.x, logH0RGB.y, logH0RGB.z)
+                  u.toeCurvatureRGB = (toeCurvatureRGB.x, toeCurvatureRGB.y, toeCurvatureRGB.z)
+                  u.shoulderCurvatureRGB = (shoulderCurvatureRGB.x, shoulderCurvatureRGB.y, shoulderCurvatureRGB.z)
+                  u.spectralMatrix = simd_float3x3(columns: (spectralRow0, spectralRow1, spectralRow2)).transpose
+                  u.dirCouplerMatrix = simd_float3x3(columns: (dirCouplerRow0, dirCouplerRow1, dirCouplerRow2)).transpose
+                  u.halationReflectance = halationReflectance
+                  u.halationGreenLeak = halationGreenLeak
+                  u.halationThreshold = halationThreshold
+                  u.halationRadiusPixels = halationRadiusPixels
+                  u.diffuseRMSGranularity = diffuseRMSGranularity
+                  u.eberhardEdgeBoost = eberhardEdgeBoost
+                  u.mtf50CyclesPerMM = mtf50CyclesPerMM
+                  u.developerTemperatureC = devTempC
+                  u.developmentTimeScale = devTimeScale
+                  u.agitationFactor = agitation
+                  u.frameRandomSeed = frameSeed
+                  return u
+              }
+          }
+          
+          /// Represents an authentic darkroom photographic paper from Kodak & Ilford technical publications.
+          struct DarkroomPaperDescriptor: Identifiable, Hashable {
+              let id: String
+              let displayName: String
+              let datasheetReference: String
+              let isMonochromeMultigrade: Bool
+              let dMinRGB: SIMD3<Float>
+              let dMaxRGB: SIMD3<Float>
+              let intrinsicGamma: Float
+          }
+          
+          /// Authoritative Database of 7 Classic Film Stocks & 3 Darkroom Papers
+          enum FilmStockDatabase {
+              static let allFilms: [FilmStockDescriptor] = [
+                  // 1. Kodak Professional Portra 400 (Publication E-4050)
+                  FilmStockDescriptor(
+                      id: "kodak_portra_400",
+                      displayName: "Kodak Portra 400",
+                      manufacturer: "Kodak Alaris",
+                      codeName: "400VC / E-4050",
+                      datasheetReference: "Kodak Tech Pub E-4050 (Status M Densitometry)",
+                      processType: .C41ColorNegative,
+                      grainMorphology: .Tabular,
+                      nominalISO: 400.0,
+                      nativeWhiteBalanceK: 5500,
+                      defaultDeveloperName: "Kodak Flexicolor C-41",
+                      defaultDeveloperTempC: 37.8,
+                      dMinRGB: SIMD3<Float>(0.22, 0.58, 0.88), // Authentic C-41 Orange Mask Base + Fog
+                      dMaxRGB: SIMD3<Float>(2.45, 2.82, 3.10),
+                      gammaRGB: SIMD3<Float>(0.62, 0.64, 0.66),
+                      logH0RGB: SIMD3<Float>(-0.78, -0.76, -0.74),
+                      toeCurvatureRGB: SIMD3<Float>(0.58, 0.56, 0.55),
+                      shoulderCurvatureRGB: SIMD3<Float>(0.82, 0.80, 0.78), // Ultra-wide +4 EV highlight latitude
+                      reciprocityExponentRGB: SIMD3<Float>(0.87, 0.88, 0.85),
+                      spectralRow0: SIMD3<Float>(0.94, 0.05, 0.01),
+                      spectralRow1: SIMD3<Float>(0.04, 0.92, 0.04),
+                      spectralRow2: SIMD3<Float>(0.01, 0.06, 0.93),
+                      dirCouplerRow0: SIMD3<Float>(1.14, -0.09, -0.05),
+                      dirCouplerRow1: SIMD3<Float>(-0.07, 1.15, -0.08),
+                      dirCouplerRow2: SIMD3<Float>(-0.04, -0.08, 1.12),
+                      halationReflectance: 0.045,
+                      halationGreenLeak: 0.18,
+                      halationThreshold: 1.15,
+                      halationRadiusPixels: 4.5,
+                      diffuseRMSGranularity: 11.0, // Official RMS = 11
+                      eberhardEdgeBoost: 0.14,
+                      mtf50CyclesPerMM: 65.0
+                  ),
+                  
+                  // 2. Kodak Professional Tri-X 400 (Publication F-4017)
+                  FilmStockDescriptor(
+                      id: "kodak_trix_400",
+                      displayName: "Kodak Tri-X 400",
+                      manufacturer: "Eastman Kodak",
+                      codeName: "400TX / F-4017",
+                      datasheetReference: "Kodak Tech Pub F-4017 (D-76 1:1 @ 20°C)",
+                      processType: .BWMonochromeNegative,
+                      grainMorphology: .Cubic,
+                      nominalISO: 400.0,
+                      nativeWhiteBalanceK: 5500,
+                      defaultDeveloperName: "Kodak D-76 (1+1) / HC-110B",
+                      defaultDeveloperTempC: 20.0,
+                      dMinRGB: SIMD3<Float>(0.28, 0.28, 0.28),
+                      dMaxRGB: SIMD3<Float>(2.38, 2.38, 2.38),
+                      gammaRGB: SIMD3<Float>(0.65, 0.65, 0.65),
+                      logH0RGB: SIMD3<Float>(-0.74, -0.74, -0.74),
+                      toeCurvatureRGB: SIMD3<Float>(0.45, 0.45, 0.45), // Classic gritty shadow toe drop
+                      shoulderCurvatureRGB: SIMD3<Float>(0.72, 0.72, 0.72),
+                      reciprocityExponentRGB: SIMD3<Float>(0.80, 0.80, 0.80),
+                      spectralRow0: SIMD3<Float>(0.34, 0.54, 0.12), // Panchromatic spectral sensitivity
+                      spectralRow1: SIMD3<Float>(0.34, 0.54, 0.12),
+                      spectralRow2: SIMD3<Float>(0.34, 0.54, 0.12),
+                      dirCouplerRow0: SIMD3<Float>(1.00, 0.00, 0.00),
+                      dirCouplerRow1: SIMD3<Float>(0.00, 1.00, 0.00),
+                      dirCouplerRow2: SIMD3<Float>(0.00, 0.00, 1.00),
+                      halationReflectance: 0.06,
+                      halationGreenLeak: 1.00,
+                      halationThreshold: 1.10,
+                      halationRadiusPixels: 5.0,
+                      diffuseRMSGranularity: 17.0, // Official RMS = 17 (Classic cubic grain)
+                      eberhardEdgeBoost: 0.24,
+                      mtf50CyclesPerMM: 55.0
+                  ),
+                  
+                  // 3. Kodak Professional T-Max 400 (Publication F-4043)
+                  FilmStockDescriptor(
+                      id: "kodak_tmax_400",
+                      displayName: "Kodak T-Max 400",
+                      manufacturer: "Eastman Kodak",
+                      codeName: "400TMY-2 / F-4043",
+                      datasheetReference: "Kodak Tech Pub F-4043 (T-Grain Emulsion)",
+                      processType: .BWMonochromeNegative,
+                      grainMorphology: .Tabular,
+                      nominalISO: 400.0,
+                      nativeWhiteBalanceK: 5500,
+                      defaultDeveloperName: "Kodak T-Max Developer (1+4)",
+                      defaultDeveloperTempC: 20.0,
+                      dMinRGB: SIMD3<Float>(0.24, 0.24, 0.24),
+                      dMaxRGB: SIMD3<Float>(2.52, 2.52, 2.52),
+                      gammaRGB: SIMD3<Float>(0.62, 0.62, 0.62),
+                      logH0RGB: SIMD3<Float>(-0.76, -0.76, -0.76),
+                      toeCurvatureRGB: SIMD3<Float>(0.54, 0.54, 0.54),
+                      shoulderCurvatureRGB: SIMD3<Float>(0.84, 0.84, 0.84),
+                      reciprocityExponentRGB: SIMD3<Float>(0.88, 0.88, 0.88),
+                      spectralRow0: SIMD3<Float>(0.36, 0.52, 0.12),
+                      spectralRow1: SIMD3<Float>(0.36, 0.52, 0.12),
+                      spectralRow2: SIMD3<Float>(0.36, 0.52, 0.12),
+                      dirCouplerRow0: SIMD3<Float>(1.00, 0.00, 0.00),
+                      dirCouplerRow1: SIMD3<Float>(0.00, 1.00, 0.00),
+                      dirCouplerRow2: SIMD3<Float>(0.00, 0.00, 1.00),
+                      halationReflectance: 0.035,
+                      halationGreenLeak: 1.00,
+                      halationThreshold: 1.25,
+                      halationRadiusPixels: 3.5,
+                      diffuseRMSGranularity: 10.0, // Official RMS = 10 (World's sharpest 400-speed B&W)
+                      eberhardEdgeBoost: 0.28,
+                      mtf50CyclesPerMM: 75.0
+                  ),
+                  
+                  // 4. Ilford HP5 Plus 400 (Harman Technology Technical Information)
+                  FilmStockDescriptor(
+                      id: "ilford_hp5_plus",
+                      displayName: "Ilford HP5 Plus",
+                      manufacturer: "Harman / Ilford Photo",
+                      codeName: "HP5+ 400/27°",
+                      datasheetReference: "Ilford HP5 Plus Technical Sheet (ID-11 / Microphen)",
+                      processType: .BWMonochromeNegative,
+                      grainMorphology: .Cubic,
+                      nominalISO: 400.0,
+                      nativeWhiteBalanceK: 5500,
+                      defaultDeveloperName: "Ilford ID-11 / Microphen (Push)",
+                      defaultDeveloperTempC: 20.0,
+                      dMinRGB: SIMD3<Float>(0.26, 0.26, 0.26),
+                      dMaxRGB: SIMD3<Float>(2.32, 2.32, 2.32),
+                      gammaRGB: SIMD3<Float>(0.60, 0.60, 0.60),
+                      logH0RGB: SIMD3<Float>(-0.75, -0.75, -0.75),
+                      toeCurvatureRGB: SIMD3<Float>(0.52, 0.52, 0.52),
+                      shoulderCurvatureRGB: SIMD3<Float>(0.78, 0.78, 0.78),
+                      reciprocityExponentRGB: SIMD3<Float>(0.78, 0.78, 0.78),
+                      spectralRow0: SIMD3<Float>(0.32, 0.55, 0.13),
+                      spectralRow1: SIMD3<Float>(0.32, 0.55, 0.13),
+                      spectralRow2: SIMD3<Float>(0.32, 0.55, 0.13),
+                      dirCouplerRow0: SIMD3<Float>(1.00, 0.00, 0.00),
+                      dirCouplerRow1: SIMD3<Float>(0.00, 1.00, 0.00),
+                      dirCouplerRow2: SIMD3<Float>(0.00, 0.00, 1.00),
+                      halationReflectance: 0.075,
+                      halationGreenLeak: 1.00,
+                      halationThreshold: 1.05,
+                      halationRadiusPixels: 5.5,
+                      diffuseRMSGranularity: 16.0,
+                      eberhardEdgeBoost: 0.21,
+                      mtf50CyclesPerMM: 52.0
+                  ),
+                  
+                  // 5. Fujifilm Fujichrome Velvia 50 (RVP50 Data Guide)
+                  FilmStockDescriptor(
+                      id: "fujifilm_velvia_50",
+                      displayName: "Fujichrome Velvia 50",
+                      manufacturer: "Fujifilm Corp.",
+                      codeName: "RVP50 / ISO 50/18°",
+                      datasheetReference: "Fujifilm Professional Film Data Guide (RVP50 Status A)",
+                      processType: .E6ColorReversal,
+                      grainMorphology: .FineE6,
+                      nominalISO: 50.0,
+                      nativeWhiteBalanceK: 5500,
+                      defaultDeveloperName: "Fujichrome E-6 First & Color Dev",
+                      defaultDeveloperTempC: 38.0,
+                      dMinRGB: SIMD3<Float>(0.12, 0.13, 0.14),
+                      dMaxRGB: SIMD3<Float>(3.65, 3.72, 3.60), // Deep Dmax > 3.6 slide blacks
+                      gammaRGB: SIMD3<Float>(1.78, 1.82, 1.75), // High-contrast reversal S-curve
+                      logH0RGB: SIMD3<Float>(-0.72, -0.72, -0.72),
+                      toeCurvatureRGB: SIMD3<Float>(0.44, 0.44, 0.44),
+                      shoulderCurvatureRGB: SIMD3<Float>(0.46, 0.46, 0.46),
+                      reciprocityExponentRGB: SIMD3<Float>(0.76, 0.79, 0.74), // Requires correction past 4s
+                      spectralRow0: SIMD3<Float>(0.97, 0.02, 0.01),
+                      spectralRow1: SIMD3<Float>(0.02, 0.96, 0.02),
+                      spectralRow2: SIMD3<Float>(0.01, 0.03, 0.96),
+                      dirCouplerRow0: SIMD3<Float>(1.26, -0.15, -0.11), // High-purity dye couplers
+                      dirCouplerRow1: SIMD3<Float>(-0.12, 1.28, -0.16),
+                      dirCouplerRow2: SIMD3<Float>(-0.09, -0.15, 1.24),
+                      halationReflectance: 0.025,
+                      halationGreenLeak: 0.12,
+                      halationThreshold: 1.35,
+                      halationRadiusPixels: 3.0,
+                      diffuseRMSGranularity: 9.0, // Official RMS = 9
+                      eberhardEdgeBoost: 0.22,
+                      mtf50CyclesPerMM: 70.0
+                  ),
+                  
+                  // 6. Fujifilm Fujichrome Provia 100F (RDPIII Data Sheet)
+                  FilmStockDescriptor(
+                      id: "fujifilm_provia_100f",
+                      displayName: "Fujichrome Provia 100F",
+                      manufacturer: "Fujifilm Corp.",
+                      codeName: "RDPIII / ISO 100/21°",
+                      datasheetReference: "Fujifilm Datasheet RDPIII (RMS 8, Zero Reciprocity to 128s)",
+                      processType: .E6ColorReversal,
+                      grainMorphology: .FineE6,
+                      nominalISO: 100.0,
+                      nativeWhiteBalanceK: 5500,
+                      defaultDeveloperName: "Fujichrome E-6 Standard",
+                      defaultDeveloperTempC: 38.0,
+                      dMinRGB: SIMD3<Float>(0.11, 0.12, 0.13),
+                      dMaxRGB: SIMD3<Float>(3.55, 3.60, 3.50),
+                      gammaRGB: SIMD3<Float>(1.48, 1.50, 1.48),
+                      logH0RGB: SIMD3<Float>(-0.74, -0.74, -0.74),
+                      toeCurvatureRGB: SIMD3<Float>(0.55, 0.55, 0.55),
+                      shoulderCurvatureRGB: SIMD3<Float>(0.56, 0.56, 0.56),
+                      reciprocityExponentRGB: SIMD3<Float>(0.98, 0.98, 0.98), // Legendary reciprocity stability up to 128s
+                      spectralRow0: SIMD3<Float>(0.95, 0.03, 0.02),
+                      spectralRow1: SIMD3<Float>(0.03, 0.94, 0.03),
+                      spectralRow2: SIMD3<Float>(0.01, 0.04, 0.95),
+                      dirCouplerRow0: SIMD3<Float>(1.16, -0.09, -0.07),
+                      dirCouplerRow1: SIMD3<Float>(-0.08, 1.18, -0.10),
+                      dirCouplerRow2: SIMD3<Float>(-0.06, -0.09, 1.15),
+                      halationReflectance: 0.020,
+                      halationGreenLeak: 0.10,
+                      halationThreshold: 1.40,
+                      halationRadiusPixels: 2.8,
+                      diffuseRMSGranularity: 8.0, // Official RMS = 8 (Finest slide granularity)
+                      eberhardEdgeBoost: 0.18,
+                      mtf50CyclesPerMM: 72.0
+                  ),
+                  
+                  // 7. Kodak Vision3 500T (5219) / CineStill 800T Remjet-Free C-41 Cross-Process
+                  FilmStockDescriptor(
+                      id: "kodak_vision3_500t_cinestill_800t",
+                      displayName: "Vision3 500T / CineStill 800T",
+                      manufacturer: "Eastman Kodak / CineStill",
+                      codeName: "5219 / 800T Tungsten",
+                      datasheetReference: "Kodak H-1-5219 Tech Data (DLT + Sub-Micron + Remjet-Free Halation)",
+                      processType: .C41CrossRemjetFree,
+                      grainMorphology: .Tabular,
+                      nominalISO: 800.0,
+                      nativeWhiteBalanceK: 3200, // Tungsten balanced
+                      defaultDeveloperName: "C-41 Cross-Process (Remjet Removed)",
+                      defaultDeveloperTempC: 37.8,
+                      dMinRGB: SIMD3<Float>(0.20, 0.55, 0.85),
+                      dMaxRGB: SIMD3<Float>(2.50, 2.85, 3.15),
+                      gammaRGB: SIMD3<Float>(0.60, 0.62, 0.64),
+                      logH0RGB: SIMD3<Float>(-0.80, -0.77, -0.71), // Extra blue sensitivity for 3200K tungsten balance
+                      toeCurvatureRGB: SIMD3<Float>(0.62, 0.60, 0.58), // Dye Layering Technology (DLT) clean shadows
+                      shoulderCurvatureRGB: SIMD3<Float>(0.88, 0.86, 0.85), // +2 stops Sub-Micron extended highlight latitude
+                      reciprocityExponentRGB: SIMD3<Float>(0.89, 0.90, 0.88),
+                      spectralRow0: SIMD3<Float>(0.88, 0.08, 0.04),
+                      spectralRow1: SIMD3<Float>(0.05, 0.90, 0.05),
+                      spectralRow2: SIMD3<Float>(0.02, 0.08, 1.08), // Boosted tungsten blue response
+                      dirCouplerRow0: SIMD3<Float>(1.18, -0.11, -0.07),
+                      dirCouplerRow1: SIMD3<Float>(-0.08, 1.19, -0.11),
+                      dirCouplerRow2: SIMD3<Float>(-0.05, -0.10, 1.15),
+                      halationReflectance: 0.38, // Characteristic crimson-orange corona from removed Remjet backing
+                      halationGreenLeak: 0.28,
+                      halationThreshold: 0.78,
+                      halationRadiusPixels: 8.5,
+                      diffuseRMSGranularity: 11.5,
+                      eberhardEdgeBoost: 0.16,
+                      mtf50CyclesPerMM: 68.0
+                  )
+              ]
+          
+              static let allPapers: [DarkroomPaperDescriptor] = [
+                  DarkroomPaperDescriptor(
+                      id: "kodak_endura_premier",
+                      displayName: "Kodak Endura Premier RA-4",
+                      datasheetReference: "Kodak Tech Pub E-4070 (Status A Reflection)",
+                      isMonochromeMultigrade: false,
+                      dMinRGB: SIMD3<Float>(0.04, 0.04, 0.05),
+                      dMaxRGB: SIMD3<Float>(2.22, 2.20, 2.18),
+                      intrinsicGamma: 1.00
+                  ),
+                  DarkroomPaperDescriptor(
+                      id: "kodak_ektacolor_edge",
+                      displayName: "Kodak Ektacolor Edge RA-4",
+                      datasheetReference: "Kodak Tech Pub E-7020 (High Chroma)",
+                      isMonochromeMultigrade: false,
+                      dMinRGB: SIMD3<Float>(0.03, 0.03, 0.04),
+                      dMaxRGB: SIMD3<Float>(2.28, 2.26, 2.24),
+                      intrinsicGamma: 1.12
+                  ),
+                  DarkroomPaperDescriptor(
+                      id: "ilford_multigrade_rc_deluxe",
+                      displayName: "Ilford Multigrade RC Deluxe (Grades 00–5)",
+                      datasheetReference: "Ilford Multigrade Technical Data C20",
+                      isMonochromeMultigrade: true,
+                      dMinRGB: SIMD3<Float>(0.04, 0.04, 0.045),
+                      dMaxRGB: SIMD3<Float>(2.15, 2.15, 2.15),
+                      intrinsicGamma: 1.00
+                  ),
+                  DarkroomPaperDescriptor(
+                      id: "ilford_multigrade_fb_warmtone",
+                      displayName: "Ilford Multigrade FB Warmtone (Fibre Base)",
+                      datasheetReference: "Ilford Fibre Base Warmtone Spec (Rich Silver Blacks)",
+                      isMonochromeMultigrade: true,
+                      dMinRGB: SIMD3<Float>(0.035, 0.045, 0.072), // Warm ivory fibre base
+                      dMaxRGB: SIMD3<Float>(2.24, 2.24, 2.22),
+                      intrinsicGamma: 1.04
+                  )
+              ]
+          }
+          
+          /// Non-Destructive Sidecar Recipe stored alongside every captured 12-bit DNG Negative
+          struct DarkroomNegativeRecipe: Codable, Identifiable {
+              var id: UUID = UUID()
+              var captureTimestamp: Date = Date()
+              var lensFocalLengthMM: Float
+              var simulatedApertureFNumber: Float
+              var shutterSpeedSeconds: Float
+              var filmStockID: String
+              var ratedEI: Float
+              var developerTemperatureC: Float
+              var developmentTimeScale: Float
+              var agitationFactor: Float
+              var enlargerHeadTypeRaw: Int32
+              var enlargerExposureEV: Float
+              var filterYellowCC: Float
+              var filterMagentaCC: Float
+              var filterCyanCC: Float
+              var multigradeFilterNumber: Float
+              var enableSplitGrade: Bool
+              var splitGradeSoftBalance: Float
+              var paperID: String
+              var chemicalTonerRaw: Int32
+              var tonerIntensity: Float
+              var dodgeBurnCenterX: Float
+              var dodgeBurnCenterY: Float
+              var dodgeBurnRadius: Float
+              var dodgeBurnStops: Float
+          }
+          EOF_HALIDE_FILE
+
+          cat << 'EOF_HALIDE_FILE' > "HalideLabPro/UI/MechanicalCameraView.swift"
+          import SwiftUI
+          
+          struct MechanicalCameraView: View {
+              @StateObject private var renderEngine = MetalRenderEngine()
+              @StateObject private var cameraPipeline = CameraCapturePipeline()
+              @ObservedObject private var motionAndHaptics = MechanicalHapticsAndMotion.shared
+          
+              @State private var activeWorkspaceTab: WorkspaceTab = .opticsAndExposure
+              @State private var showDatasheetInspector: Bool = false
+          
+              enum WorkspaceTab: String, CaseIterable {
+                  case opticsAndExposure = "OPTICS & SHUTTER"
+                  case emulsionAndChem   = "EMULSION & DEV"
+                  case darkroomEnlarger  = "DARKROOM PRINT"
+              }
+          
+              private let romanZones = ["0", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"]
+              private let standardApertures: [Float] = [1.2, 1.4, 1.5, 1.8, 2.0, 2.8, 4.0, 5.6, 8.0, 11.0, 16.0, 22.0]
+              private let standardShutters: [(String, Float)] = [
+                  ("1/4000", 1.0/4000.0), ("1/2000", 1.0/2000.0), ("1/1000", 1.0/1000.0),
+                  ("1/500", 1.0/500.0),   ("1/250", 1.0/250.0),   ("1/125", 1.0/125.0),
+                  ("1/60", 1.0/60.0),     ("1/30", 1.0/30.0),     ("1/15", 1.0/15.0),
+                  ("1/4", 0.25),          ("1s", 1.0),            ("4s (Recip.)", 4.0),
+                  ("15s (Recip.)", 15.0)
+              ]
+          
+              var body: some View {
+                  ZStack {
+                      Color(red: 0.06, green: 0.06, blue: 0.07).ignoresSafeArea()
+          
+                      VStack(spacing: 0) {
+                          // 1. Top Precision Brass & Anodized Aluminum Telemetry Bar
+                          topTelemetryHeader
+          
+                          // 2. Optical Rangefinder Viewfinder with Brightline Frames, 1-Degree Spot Meter & Horizon Level
+                          ZStack {
+                              MetalViewfinderRepresentable(renderEngine: renderEngine)
+                                  .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                  .overlay(
+                                      RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                          .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                                  )
+                                  .gesture(
+                                      DragGesture(minimumDistance: 0)
+                                          .onChanged { value in
+                                              let size = UIScreen.main.bounds.size
+                                              let ux = Float(min(max(value.location.x / (size.width - 24), 0.05), 0.95))
+                                              let uy = Float(min(max(value.location.y / (size.height * 0.48), 0.05), 0.95))
+                                              if activeWorkspaceTab == .darkroomEnlarger && abs(renderEngine.dodgeBurnStops) > 0.01 {
+                                                  renderEngine.dodgeBurnCenterUV = SIMD2<Float>(ux, uy)
+                                              } else {
+                                                  renderEngine.spotMeterTargetUV = SIMD2<Float>(ux, uy)
+                                              }
+                                          }
+                                  )
+          
+                              // Leica-style Brightline Frame & Parallax Marks + Spot Reticle + Dual-Axis Gyro Level
+                              viewfinderOverlayHUD
+                          }
+                          .padding(.horizontal, 10)
+                          .padding(.vertical, 6)
+          
+                          // 3. Film Stock Quick Ribbon & Zone System Bar
+                          filmRibbonAndZoneScaleBar
+          
+                          // 4. Mode Selector Tabs (Optics / Emulsion Chemistry / Darkroom Enlarger)
+                          workspaceTabSelector
+          
+                          // 5. Interactive Mechanical Dials & Darkroom Controls
+                          ScrollView(.vertical, showsIndicators: false) {
+                              VStack(spacing: 12) {
+                                  switch activeWorkspaceTab {
+                                  case .opticsAndExposure:
+                                      opticsAndExposureControls
+                                  case .emulsionAndChem:
+                                      emulsionAndChemistryControls
+                                  case .darkroomEnlarger:
+                                      darkroomEnlargerControls
+                                  }
+                              }
+                              .padding(.horizontal, 14)
+                              .padding(.vertical, 10)
+                          }
+                          .frame(maxHeight: 215)
+          
+                          // 6. Bottom Shutter Release Deck & Lens Turret
+                          bottomShutterDeck
+                      }
+                  }
+                  .sheet(isPresented: $showDatasheetInspector) {
+                      datasheetInspectorModal
+                  }
+                  .onAppear {
+                      cameraPipeline.bindMetalDevice(renderEngine.device)
+                      renderEngine.cameraPipeline = cameraPipeline
+                      cameraPipeline.requestPermissionsAndStart()
+                  }
+              }
+          
+              // MARK: - Top Telemetry Header
+              private var topTelemetryHeader: some View {
+                  HStack(spacing: 10) {
+                      VStack(alignment: .leading, spacing: 2) {
+                          HStack(spacing: 6) {
+                              Circle()
+                                  .fill(cameraPipeline.usePureBayerRAWOverProRAW ? Color.orange : Color.cyan)
+                                  .frame(width: 7, height: 7)
+                              Text(cameraPipeline.usePureBayerRAWOverProRAW ? "12-BIT PURE BAYER RAW" : "12-BIT APPLE PRORAW")
+                                  .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                  .foregroundColor(.orange)
+                          }
+                          Text(renderEngine.selectedFilm.displayName.uppercased() + " • EI \(Int(renderEngine.ratedEI))")
+                              .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                              .foregroundColor(.white)
+                      }
+          
+                      Spacer()
+          
+                      // Toggle Pure Bayer vs ProRAW
+                      Button {
+                          cameraPipeline.usePureBayerRAWOverProRAW.toggle()
+                          motionAndHaptics.playApertureDetentClick()
+                      } label: {
+                          Text(cameraPipeline.usePureBayerRAWOverProRAW ? "BAYER" : "ProRAW")
+                              .font(.system(size: 10, weight: .bold, design: .monospaced))
+                              .padding(.horizontal, 8)
+                              .padding(.vertical, 5)
+                              .background(Color.white.opacity(0.12))
+                              .foregroundColor(.white)
+                              .cornerRadius(5)
+                      }
+          
+                      // Zone False Color Toggle
+                      Button {
+                          renderEngine.enableZoneFalseColor.toggle()
+                          motionAndHaptics.playApertureDetentClick()
+                      } label: {
+                          Text("ZONE MAP")
+                              .font(.system(size: 10, weight: .bold, design: .monospaced))
+                              .padding(.horizontal, 8)
+                              .padding(.vertical, 5)
+                              .background(renderEngine.enableZoneFalseColor ? Color.green.opacity(0.85) : Color.white.opacity(0.12))
+                              .foregroundColor(renderEngine.enableZoneFalseColor ? .black : .white)
+                              .cornerRadius(5)
+                      }
+          
+                      // Focus Peaking Toggle
+                      Button {
+                          renderEngine.enableFocusPeaking.toggle()
+                          motionAndHaptics.playApertureDetentClick()
+                      } label: {
+                          Text("PEAK")
+                              .font(.system(size: 10, weight: .bold, design: .monospaced))
+                              .padding(.horizontal, 8)
+                              .padding(.vertical, 5)
+                              .background(renderEngine.enableFocusPeaking ? Color.yellow.opacity(0.85) : Color.white.opacity(0.12))
+                              .foregroundColor(renderEngine.enableFocusPeaking ? .black : .white)
+                              .cornerRadius(5)
+                      }
+          
+                      // Datasheet Spec Inspector
+                      Button {
+                          showDatasheetInspector = true
+                      } label: {
+                          Image(systemName: "info.circle")
+                              .font(.system(size: 15, weight: .semibold))
+                              .foregroundColor(.orange)
+                      }
+                  }
+                  .padding(.horizontal, 14)
+                  .padding(.vertical, 8)
+                  .background(Color.black.opacity(0.65))
+              }
+          
+              // MARK: - Viewfinder HUD (Brightline Frame, 1-Degree Spot Meter, Density Readout & Gyro Horizon)
+              private var viewfinderOverlayHUD: some View {
+                  GeometryReader { geo in
+                      ZStack {
+                          // Leica Brightline Framelines
+                          RoundedRectangle(cornerRadius: 4)
+                              .strokeBorder(style: StrokeStyle(lineWidth: 1.2, dash: [18, 6]))
+                              .foregroundColor(Color.white.opacity(0.55))
+                              .padding(18)
+          
+                          // Gyroscope Horizon Indicator
+                          HStack(spacing: 4) {
+                              Rectangle()
+                                  .fill(motionAndHaptics.isLevelAligned ? Color.green : Color.white.opacity(0.5))
+                                  .frame(width: 28, height: 1.5)
+                              Text(String(format: "%+.1f°", motionAndHaptics.rollDegrees))
+                                  .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                  .foregroundColor(motionAndHaptics.isLevelAligned ? .green : .white.opacity(0.75))
+                              Rectangle()
+                                  .fill(motionAndHaptics.isLevelAligned ? Color.green : Color.white.opacity(0.5))
+                                  .frame(width: 28, height: 1.5)
+                          }
+                          .rotationEffect(.degrees(-motionAndHaptics.rollDegrees))
+                          .position(x: geo.size.width * 0.5, y: 26)
+          
+                          // 1-Degree Spot Meter Reticle
+                          let spotX = CGFloat(renderEngine.spotMeterTargetUV.x) * geo.size.width
+                          let spotY = CGFloat(renderEngine.spotMeterTargetUV.y) * geo.size.height
+                          ZStack {
+                              Circle()
+                                  .stroke(Color.orange, lineWidth: 1.5)
+                                  .frame(width: 28, height: 28)
+                              Circle()
+                                  .fill(Color.orange)
+                                  .frame(width: 3, height: 3)
+                              Text("ZONE \(romanZones[min(max(renderEngine.currentAdamsZone, 0), 10)])")
+                                  .font(.system(size: 9, weight: .black, design: .monospaced))
+                                  .padding(.horizontal, 5)
+                                  .padding(.vertical, 2)
+                                  .background(Color.black.opacity(0.75))
+                                  .foregroundColor(.orange)
+                                  .cornerRadius(3)
+                                  .offset(y: -24)
+                          }
+                          .position(x: spotX, y: spotY)
+          
+                          // Bottom-Left Sensitometric Density Readout (Status M / Status A Optical Density D_R, D_G, D_B)
+                          VStack(alignment: .leading, spacing: 2) {
+                              Text(String(format: "SPOT EV100: %+.1f EV • ZONE %d (%@)",
+                                          renderEngine.currentSpotEV100,
+                                          renderEngine.currentAdamsZone,
+                                          romanZones[min(max(renderEngine.currentAdamsZone, 0), 10)]))
+                                  .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                  .foregroundColor(.white)
+                              Text(String(format: "EMULSION DENSITY D(R,G,B): %.2f / %.2f / %.2f • RMS σD=%.1f",
+                                          renderEngine.currentSpotDensityRGB.x,
+                                          renderEngine.currentSpotDensityRGB.y,
+                                          renderEngine.currentSpotDensityRGB.z,
+                                          renderEngine.selectedFilm.diffuseRMSGranularity))
+                                  .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                  .foregroundColor(Color.white.opacity(0.82))
+                          }
+                          .padding(7)
+                          .background(Color.black.opacity(0.62))
+                          .cornerRadius(6)
+                          .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                          .padding(12)
+                      }
+                  }
+              }
+          
+              // MARK: - Film Stock Selector Ribbon
+              private var filmRibbonAndZoneScaleBar: some View {
+                  ScrollView(.horizontal, showsIndicators: false) {
+                      HStack(spacing: 8) {
+                          ForEach(FilmStockDatabase.allFilms) { film in
+                              let isSelected = (film.id == renderEngine.selectedFilm.id)
+                              Button {
+                                  renderEngine.selectFilmStock(film)
+                              } label: {
+                                  VStack(alignment: .leading, spacing: 2) {
+                                      Text(film.displayName)
+                                          .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                          .foregroundColor(isSelected ? .black : .white)
+                                      Text("\(film.codeName) • RMS \(String(format: "%.0f", film.diffuseRMSGranularity))")
+                                          .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                          .foregroundColor(isSelected ? .black.opacity(0.75) : .gray)
+                                  }
+                                  .padding(.horizontal, 10)
+                                  .padding(.vertical, 6)
+                                  .background(isSelected ? Color.orange : Color.white.opacity(0.09))
+                                  .cornerRadius(6)
+                              }
+                          }
+                      }
+                      .padding(.horizontal, 12)
+                      .padding(.vertical, 6)
+                  }
+                  .background(Color.black.opacity(0.5))
+              }
+          
+              // MARK: - Workspace Tab Selector
+              private var workspaceTabSelector: some View {
+                  HStack(spacing: 0) {
+                      ForEach(WorkspaceTab.allCases, id: \.self) { tab in
+                          let active = (activeWorkspaceTab == tab)
+                          Button {
+                              activeWorkspaceTab = tab
+                              motionAndHaptics.playApertureDetentClick()
+                          } label: {
+                              Text(tab.rawValue)
+                                  .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                  .frame(maxWidth: .infinity)
+                                  .padding(.vertical, 7)
+                                  .background(active ? Color.white.opacity(0.16) : Color.clear)
+                                  .foregroundColor(active ? .orange : .gray)
+                          }
+                      }
+                  }
+                  .background(Color.black.opacity(0.8))
+              }
+          
+              // MARK: - Tab 1: Physical Optics & Shutter Controls
+              private var opticsAndExposureControls: some View {
+                  VStack(alignment: .leading, spacing: 10) {
+                      // Simulated Mechanical Aperture Ring (f/1.2 - f/22)
+                      VStack(alignment: .leading, spacing: 4) {
+                          Text("SIMULATED IRIS APERTURE: f/\(String(format: "%.1f", renderEngine.simulatedApertureFNumber)) (\(renderEngine.apertureBladeCount) Blades • CoC + Diffraction)")
+                              .font(.system(size: 10, weight: .bold, design: .monospaced))
+                              .foregroundColor(.orange)
+                          ScrollView(.horizontal, showsIndicators: false) {
+                              HStack(spacing: 6) {
+                                  ForEach(standardApertures, id: \.self) { fVal in
+                                      let sel = abs(renderEngine.simulatedApertureFNumber - fVal) < 0.05
+                                      Button {
+                                          renderEngine.simulatedApertureFNumber = fVal
+                                          motionAndHaptics.playApertureDetentClick()
+                                      } label: {
+                                          Text("f/\(String(format: "%.1f", fVal))")
+                                              .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                              .padding(.horizontal, 9)
+                                              .padding(.vertical, 5)
+                                              .background(sel ? Color.white : Color.white.opacity(0.1))
+                                              .foregroundColor(sel ? .black : .white)
+                                              .cornerRadius(4)
+                                      }
+                                  }
+                              }
+                          }
+                      }
+          
+                      // Mechanical Shutter Speed Dial (with Schwarzschild Reciprocity Failure past 1s)
+                      VStack(alignment: .leading, spacing: 4) {
+                          Text("FOCAL-PLANE SHUTTER SPEED (SCHWARZSCHILD p=\(String(format: "%.2f", renderEngine.selectedFilm.reciprocityExponentRGB.y)))")
+                              .font(.system(size: 10, weight: .bold, design: .monospaced))
+                              .foregroundColor(.gray)
+                          ScrollView(.horizontal, showsIndicators: false) {
+                              HStack(spacing: 6) {
+                                  ForEach(standardShutters, id: \.0) { item in
+                                      let sel = abs(renderEngine.shutterSpeedSeconds - item.1) < 0.0001
+                                      Button {
+                                          renderEngine.shutterSpeedSeconds = item.1
+                                          cameraPipeline.setManualExposureAndFocus(
+                                              iso: renderEngine.ratedEI,
+                                              shutterSeconds: item.1,
+                                              focusDistanceMeters: renderEngine.focusDistanceMeters
+                                          )
+                                          motionAndHaptics.playApertureDetentClick()
+                                      } label: {
+                                          Text(item.0)
+                                              .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                              .padding(.horizontal, 9)
+                                              .padding(.vertical, 5)
+                                              .background(sel ? Color.orange : Color.white.opacity(0.1))
+                                              .foregroundColor(sel ? .black : .white)
+                                              .cornerRadius(4)
+                                      }
+                                  }
+                              }
+                          }
+                      }
+          
+                      // Helicoid Focus Distance + Optical Aberrations
+                      HStack(spacing: 14) {
+                          VStack(alignment: .leading, spacing: 2) {
+                              Text(String(format: "HELICOID FOCUS: %.2f m", renderEngine.focusDistanceMeters))
+                                  .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                  .foregroundColor(.white)
+                              Slider(value: $renderEngine.focusDistanceMeters, in: 0.05...10.0)
+                                  .tint(.orange)
+                                  .onChange(of: renderEngine.focusDistanceMeters) { newVal in
+                                      cameraPipeline.setManualExposureAndFocus(
+                                          iso: renderEngine.ratedEI,
+                                          shutterSeconds: renderEngine.shutterSpeedSeconds,
+                                          focusDistanceMeters: newVal
+                                      )
+                                      motionAndHaptics.playFocusHelicoidTick()
+                                  }
+                          }
+          
+                          VStack(alignment: .leading, spacing: 2) {
+                              Text(String(format: "SPHERICAL ABERRATION: %+.2f", renderEngine.sphericalAberration))
+                                  .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                  .foregroundColor(.white)
+                              Slider(value: $renderEngine.sphericalAberration, in: -0.8...0.8)
+                                  .tint(.cyan)
+                          }
+                      }
+                  }
+              }
+          
+              // MARK: - Tab 2: Emulsion Sensitometry & Chemical Development Kinetics
+              private var emulsionAndChemistryControls: some View {
+                  VStack(alignment: .leading, spacing: 10) {
+                      HStack {
+                          Text("CHEMICAL PROCESS: \(renderEngine.selectedFilm.defaultDeveloperName.uppercased())")
+                              .font(.system(size: 10, weight: .bold, design: .monospaced))
+                              .foregroundColor(.orange)
+                          Spacer()
+                          Text("DATASHEET: \(renderEngine.selectedFilm.datasheetReference)")
+                              .font(.system(size: 9, weight: .medium, design: .monospaced))
+                              .foregroundColor(.gray)
+                      }
+          
+                      HStack(spacing: 14) {
+                          VStack(alignment: .leading, spacing: 2) {
+                              Text(String(format: "RATED EI: %.0f (Nominal %.0f)", renderEngine.ratedEI, renderEngine.selectedFilm.nominalISO))
+                                  .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                  .foregroundColor(.white)
+                              Slider(value: $renderEngine.ratedEI, in: 25...3200, step: 25)
+                                  .tint(.orange)
+                          }
+          
+                          VStack(alignment: .leading, spacing: 2) {
+                              Text(String(format: "BATH TEMP: %.1f°C (Arrhenius)", renderEngine.developerTemperatureC))
+                                  .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                  .foregroundColor(.white)
+                              Slider(value: $renderEngine.developerTemperatureC, in: 16.0...44.0, step: 0.2)
+                                  .tint(.red)
+                          }
+                      }
+          
+                      HStack(spacing: 14) {
+                          VStack(alignment: .leading, spacing: 2) {
+                              Text(String(format: "PUSH / PULL DEV TIME: %.2fx", renderEngine.developmentTimeScale))
+                                  .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                  .foregroundColor(.white)
+                              Slider(value: $renderEngine.developmentTimeScale, in: 0.60...2.20)
+                                  .tint(.orange)
+                          }
+          
+                          VStack(alignment: .leading, spacing: 2) {
+                              Text(String(format: "AGITATION (STAND -> ROTARY): %.2f", renderEngine.agitationFactor))
+                                  .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                  .foregroundColor(.white)
+                              Slider(value: $renderEngine.agitationFactor, in: 0.20...1.20)
+                                  .tint(.green)
+                          }
+                      }
+                  }
+              }
+          
+              // MARK: - Tab 3: Darkroom Enlarger, RA-4 Color Head & Ilford Multigrade Paper
+              private var darkroomEnlargerControls: some View {
+                  VStack(alignment: .leading, spacing: 10) {
+                      // Paper Selector + Enlarger Head Condenser/Diffuser Toggle
+                      HStack(spacing: 8) {
+                          Menu {
+                              ForEach(FilmStockDatabase.allPapers) { paper in
+                                  Button(paper.displayName) {
+                                      renderEngine.selectedPaper = paper
+                                      motionAndHaptics.playApertureDetentClick()
+                                  }
+                              }
+                          } label: {
+                              HStack {
+                                  Text("PAPER: \(renderEngine.selectedPaper.displayName)")
+                                      .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                  Image(systemName: "chevron.up.chevron.down")
+                                      .font(.system(size: 9))
+                              }
+                              .padding(.horizontal, 8)
+                              .padding(.vertical, 5)
+                              .background(Color.white.opacity(0.14))
+                              .foregroundColor(.orange)
+                              .cornerRadius(5)
+                          }
+          
+                          Spacer()
+          
+                          Button {
+                              renderEngine.enlargerHeadType = (renderEngine.enlargerHeadType == .Condenser) ? .Diffuser : .Condenser
+                              motionAndHaptics.playApertureDetentClick()
+                          } label: {
+                              Text(renderEngine.enlargerHeadType == .Condenser ? "HEAD: CONDENSER (Q=1.16)" : "HEAD: DIFFUSER (Q=1.00)")
+                                  .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                  .padding(.horizontal, 8)
+                                  .padding(.vertical, 5)
+                                  .background(Color.white.opacity(0.12))
+                                  .foregroundColor(.white)
+                                  .cornerRadius(5)
+                          }
+                      }
+          
+                      if renderEngine.selectedFilm.processType == .BWMonochromeNegative {
+                          // Ilford Multigrade 00-5 Contrast Filter & Chemical Toner
+                          HStack(spacing: 14) {
+                              VStack(alignment: .leading, spacing: 2) {
+                                  Text(String(format: "ILFORD MULTIGRADE FILTER: GRADE %.1f", renderEngine.multigradeFilterNumber))
+                                      .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                      .foregroundColor(.yellow)
+                                  Slider(value: $renderEngine.multigradeFilterNumber, in: -1.0...5.0, step: 0.5)
+                                      .tint(.yellow)
+                              }
+          
+                              VStack(alignment: .leading, spacing: 2) {
+                                  Text("TONER (NONE / SELENIUM / SEPIA)")
+                                      .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                      .foregroundColor(.white)
+                                  Picker("Toner", selection: $renderEngine.chemicalToner) {
+                                      Text("None").tag(ChemicalTonerType.None)
+                                      Text("Selenium").tag(ChemicalTonerType.Selenium)
+                                      Text("Sepia").tag(ChemicalTonerType.Sepia)
+                                      Text("Gold").tag(ChemicalTonerType.Gold)
+                                  }
+                                  .pickerStyle(.segmented)
+                              }
+                          }
+                      } else {
+                          // RA-4 Color Enlarger Dichroic Filtration (Y / M / C CC Wheels)
+                          HStack(spacing: 10) {
+                              VStack(alignment: .leading, spacing: 2) {
+                                  Text(String(format: "YELLOW: %.0f CC", renderEngine.filterYellowCC))
+                                      .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                      .foregroundColor(.yellow)
+                                  Slider(value: $renderEngine.filterYellowCC, in: -100...100)
+                                      .tint(.yellow)
+                              }
+                              VStack(alignment: .leading, spacing: 2) {
+                                  Text(String(format: "MAGENTA: %.0f CC", renderEngine.filterMagentaCC))
+                                      .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                      .foregroundColor(.pink)
+                                  Slider(value: $renderEngine.filterMagentaCC, in: -100...100)
+                                      .tint(.pink)
+                              }
+                              VStack(alignment: .leading, spacing: 2) {
+                                  Text(String(format: "CYAN: %.0f CC", renderEngine.filterCyanCC))
+                                      .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                      .foregroundColor(.cyan)
+                                  Slider(value: $renderEngine.filterCyanCC, in: -100...100)
+                                      .tint(.cyan)
+                              }
+                          }
+                      }
+          
+                      // Enlarger Base Exposure Time & Physical Dodge/Burn Wand
+                      HStack(spacing: 14) {
+                          VStack(alignment: .leading, spacing: 2) {
+                              Text(String(format: "ENLARGER TIMER: %+.2f EV", renderEngine.enlargerExposureTimeEV))
+                                  .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                  .foregroundColor(.white)
+                              Slider(value: $renderEngine.enlargerExposureTimeEV, in: -2.5...2.5)
+                                  .tint(.orange)
+                          }
+          
+                          VStack(alignment: .leading, spacing: 2) {
+                              Text(String(format: "DODGE (-) / BURN (+) WAND: %+.2f EV", renderEngine.dodgeBurnStops))
+                                  .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                  .foregroundColor(.white)
+                              Slider(value: $renderEngine.dodgeBurnStops, in: -2.0...2.0)
+                                  .tint(.purple)
+                          }
+                      }
+                  }
+              }
+          
+              // MARK: - Bottom Shutter Release & iPhone 13 Pro Max Optical Turret
+              private var bottomShutterDeck: some View {
+                  HStack(spacing: 18) {
+                      // Hardware Lens Selector (13mm f/1.8, 26mm f/1.5, 77mm f/2.8)
+                      HStack(spacing: 6) {
+                          ForEach(iPhone13ProMaxLens.allCases) { lens in
+                              let isCurrent = (cameraPipeline.activeLens == lens)
+                              Button {
+                                  cameraPipeline.switchOpticalLens(lens)
+                                  renderEngine.simulatedApertureFNumber = lens.nativeApertureFNumber
+                              } label: {
+                                  VStack(spacing: 1) {
+                                      Text("\(Int(lens.focalLengthMM))mm")
+                                          .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                      Text("f/\(String(format: "%.1f", lens.nativeApertureFNumber))")
+                                          .font(.system(size: 8, weight: .medium, design: .monospaced))
+                                  }
+                                  .frame(width: 48, height: 38)
+                                  .background(isCurrent ? Color.orange : Color.white.opacity(0.1))
+                                  .foregroundColor(isCurrent ? .black : .white)
+                                  .cornerRadius(8)
+                              }
+                          }
+                      }
+          
+                      Spacer()
+          
+                      // Mechanical Threaded Cable-Release Shutter Button
+                      Button {
+                          let recipe = renderEngine.buildCurrentRecipe()
+                          let snapshot = renderEngine.snapshotCurrentPrintUIImage()
+                          cameraPipeline.capture12BitRAWAndDevelopPrint(recipe: recipe, renderedPrintSnapshot: snapshot)
+                      } label: {
+                          ZStack {
+                              Circle()
+                                  .stroke(Color.white.opacity(0.85), lineWidth: 3)
+                                  .frame(width: 66, height: 66)
+                              Circle()
+                                  .fill(
+                                      RadialGradient(
+                                          colors: [Color(white: 0.92), Color(white: 0.65)],
+                                          center: .center,
+                                          startRadius: 2,
+                                          endRadius: 28
+                                      )
+                                  )
+                                  .frame(width: 54, height: 54)
+                              Circle()
+                                  .fill(Color.black.opacity(0.75))
+                                  .frame(width: 12, height: 12) // Threaded mechanical cable release socket
+                          }
+                      }
+          
+                      Spacer()
+          
+                      // Latest Darkroom Print Contact Sheet Thumbnail
+                      VStack(spacing: 2) {
+                          if let img = cameraPipeline.latestCapturedPreviewImage {
+                              Image(uiImage: img)
+                                  .resizable()
+                                  .scaledToFill()
+                                  .frame(width: 44, height: 44)
+                                  .clipShape(RoundedRectangle(cornerRadius: 6))
+                                  .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.orange, lineWidth: 1))
+                          } else {
+                              RoundedRectangle(cornerRadius: 6)
+                                  .fill(Color.white.opacity(0.1))
+                                  .frame(width: 44, height: 44)
+                                  .overlay(
+                                      Text("#\(cameraPipeline.capturedRollsCount)")
+                                          .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                          .foregroundColor(.gray)
+                                  )
+                          }
+                          Text("FRAMES: \(cameraPipeline.capturedRollsCount)")
+                              .font(.system(size: 8, weight: .bold, design: .monospaced))
+                              .foregroundColor(.gray)
+                      }
+                  }
+                  .padding(.horizontal, 16)
+                  .padding(.vertical, 10)
+                  .background(Color.black)
+              }
+          
+              // MARK: - Datasheet Inspector Modal
+              private var datasheetInspectorModal: some View {
+                  NavigationView {
+                      List {
+                          Section(header: Text("Active Film Emulsion Datasheet")) {
+                              let f = renderEngine.selectedFilm
+                              LabeledContent("Film Stock", value: f.displayName)
+                              LabeledContent("Code / Spec", value: f.codeName)
+                              LabeledContent("Reference", value: f.datasheetReference)
+                              LabeledContent("Diffuse RMS Granularity (σD)", value: String(format: "%.1f (48µm aperture @ D=1.0)", f.diffuseRMSGranularity))
+                              LabeledContent("MTF 50% Frequency", value: String(format: "%.0f cycles/mm", f.mtf50CyclesPerMM))
+                              LabeledContent("Base + Fog Dmin (R,G,B)", value: String(format: "%.2f, %.2f, %.2f", f.dMinRGB.x, f.dMinRGB.y, f.dMinRGB.z))
+                              LabeledContent("Saturation Dmax (R,G,B)", value: String(format: "%.2f, %.2f, %.2f", f.dMaxRGB.x, f.dMaxRGB.y, f.dMaxRGB.z))
+                              LabeledContent("Schwarzschild Exponent p", value: String(format: "%.2f, %.2f, %.2f", f.reciprocityExponentRGB.x, f.reciprocityExponentRGB.y, f.reciprocityExponentRGB.z))
+                          }
+          
+                          Section(header: Text("Active Darkroom Paper Datasheet")) {
+                              let p = renderEngine.selectedPaper
+                              LabeledContent("Photographic Paper", value: p.displayName)
+                              LabeledContent("Reference", value: p.datasheetReference)
+                              LabeledContent("Paper Base Dmin", value: String(format: "%.3f, %.3f, %.3f", p.dMinRGB.x, p.dMinRGB.y, p.dMinRGB.z))
+                              LabeledContent("Max Silver/Dye Black Dmax", value: String(format: "%.2f", p.dMaxRGB.y))
+                          }
+          
+                          Section(header: Text("iPhone 13 Pro Max Hardware Telemetry")) {
+                              LabeledContent("Active Sensor Module", value: cameraPipeline.activeLens.rawValue)
+                              LabeledContent("Pipeline Status", value: cameraPipeline.statusMessage)
+                              LabeledContent("Working Color Space", value: "ACEScg Scene-Linear (RGBA16Float) -> Display P3")
+                          }
+                      }
+                      .navigationTitle("Sensitometry & Optics Spec")
+                      .toolbar {
+                          ToolbarItem(placement: .confirmationAction) {
+                              Button("Done") { showDatasheetInspector = false }
+                          }
+                      }
+                  }
+              }
+          }
+          EOF_HALIDE_FILE
+
+          cat << 'EOF_HALIDE_FILE' > "HalideLabPro/UI/MetalViewfinderRepresentable.swift"
+          import SwiftUI
+          import MetalKit
+          
+          /// 120Hz ProMotion Extended Dynamic Range (Display P3) Metal Viewfinder for iPhone 13 Pro Max
+          struct MetalViewfinderRepresentable: UIViewRepresentable {
+              @ObservedObject var renderEngine: MetalRenderEngine
+          
+              func makeUIView(context: Context) -> MTKView {
+                  let mtkView = MTKView(frame: .zero, device: renderEngine.device)
+                  mtkView.delegate = renderEngine
+                  mtkView.framebufferOnly = false
+                  mtkView.colorPixelFormat = .bgra8Unorm
+                  mtkView.preferredFramesPerSecond = 120 // Unlock 120Hz ProMotion on iPhone 13 Pro Max
+                  mtkView.enableSetNeedsDisplay = false
+                  mtkView.isPaused = false
+                  mtkView.clearColor = MTLClearColor(red: 0.04, green: 0.04, blue: 0.04, alpha: 1.0)
+                  return mtkView
+              }
+          
+              func updateUIView(_ uiView: MTKView, context: Context) {}
+          }
+          EOF_HALIDE_FILE
+
+          cat << 'EOF_HALIDE_FILE' > "HalideLabPro/Shaders/AnalogPipelineShaders.metal"
+          #include <metal_stdlib>
+          #include "../Bridge/ShaderBridgeTypes.h"
+          using namespace metal;
+          
+          // ============================================================================
+          // UTILITY FUNCTIONS: COLOR SCIENCE, HASHING & PHYSICAL OPTICS GEOMETRY
+          // ============================================================================
+          
+          // Convert Display P3 / Rec.709 Linear to ACEScg (AP1) Scene-Linear Working Space
+          inline float3 linearP3ToACEScg(float3 p3) {
+              const float3x3 mat = float3x3(
+                  float3(0.679086f, 0.046002f, 0.005742f),
+                  float3(0.214114f, 0.879460f, 0.043866f),
+                  float3(0.106800f, 0.074538f, 0.950392f)
+              );
+              return max(float3(0.0f), mat * p3);
+          }
+          
+          // Convert ACEScg (AP1) back to Display P3 Linear for iPhone 13 Pro Max XDR Display
+          inline float3 acesCgToLinearP3(float3 aces) {
+              const float3x3 mat = float3x3(
+                  float3( 1.541738f, -0.078986f, -0.005677f),
+                  float3(-0.373915f,  1.163161f, -0.051367f),
+                  float3(-0.167823f, -0.084175f,  1.057044f)
+              );
+              return max(float3(0.0f), mat * aces);
+          }
+          
+          // Display P3 / sRGB Piecewise Transfer Function (Linear -> Display Encoded)
+          inline float3 linearToDisplayP3Gamma(float3 lin) {
+              lin = clamp(lin, 0.0f, 2.0f); // Preserve EDR headroom
+              float3 lo = lin * 12.92f;
+              float3 hi = 1.055f * pow(max(lin, float3(1e-5f)), float3(1.0f / 2.4f)) - 0.055f;
+              return select(hi, lo, lin <= 0.0031308f);
+          }
+          
+          // Inverse sRGB/P3 Transfer Function (Display Encoded -> Scene Linear Radiance)
+          inline float3 displayP3GammaToLinear(float3 enc) {
+              float3 lo = enc / 12.92f;
+              float3 hi = pow(max((enc + 0.055f) / 1.055f, float3(0.0f)), float3(2.4f));
+              return select(hi, lo, enc <= 0.04045f);
+          }
+          
+          // High-quality 3D PCG Hash for Monte Carlo Silver Halide Crystal Placement
+          inline uint3 pcg3d(uint3 v) {
+              v = v * 1664525u + 1013904223u;
+              v.x += v.y * v.z;
+              v.y += v.z * v.x;
+              v.z += v.x * v.y;
+              v ^= v >> 16u;
+              v.x += v.y * v.z;
+              v.y += v.z * v.x;
+              v.z += v.x * v.y;
+              return v;
+          }
+          
+          inline float3 hash33(uint3 p) {
+              uint3 h = pcg3d(p);
+              return float3(h) * (1.0f / 4294967295.0f);
+          }
+          
+          // Signed Distance / Weight of a mechanical N-blade iris diaphragm with blade curvature
+          inline float aperturePolygonWeight(float2 sampleOffset, int bladeCount, float curvature) {
+              float r = length(sampleOffset);
+              if (r < 1e-4f) return 1.0f;
+              float theta = atan2(sampleOffset.y, sampleOffset.x);
+              float sector = 2.0f * M_PI_F / float(max(bladeCount, 5));
+              float halfSector = 0.5f * sector;
+              float localAngle = fmod(theta + 2.0f * M_PI_F, sector) - halfSector;
+              float polyRadius = cos(halfSector) / max(cos(localAngle), 0.1f);
+              float effectiveRadius = mix(polyRadius, 1.0f, clamp(curvature, 0.0f, 1.0f));
+              return smoothstep(effectiveRadius, effectiveRadius * 0.88f, r);
+          }
+          
+          // ============================================================================
+          // KERNEL 1: PHYSICAL OPTICS ENGINE (RADIOMETRIC CALIBRATION, THICK-LENS BOKEH,
+          //           CAT'S EYE VIGNETTING, CHROMATIC ABERRATION & FRAUNHOFER DIFFRACTION)
+          // ============================================================================
+          
+          kernel void k_physical_optics_pass(
+              texture2d<float, access::sample> inCameraTex     [[texture(0)]],
+              texture2d<float, access::sample> inLiDARDepthTex [[texture(1)]],
+              texture2d<float, access::write>  outLinearTex    [[texture(2)]],
+              constant PhysicalOpticsUniforms& optics          [[buffer(0)]],
+              uint2 gid                                        [[thread_position_in_grid]]
+          ) {
+              uint width = outLinearTex.get_width();
+              uint height = outLinearTex.get_height();
+              if (gid.x >= width || gid.y >= height) return;
+          
+              constexpr sampler linSampler(coord::normalized, address::clamp_to_edge, filter::linear);
+              float2 res = float2(width, height);
+              float2 uv = (float2(gid) + 0.5f) / res;
+              float2 centeredUV = (uv - 0.5f) * 2.0f;
+              centeredUV.x *= res.x / res.y;
+              float radialDist = length(centeredUV);
+          
+              // 1. Lateral Chromatic Aberration (wavelength-dependent radial magnification shift)
+              float caShift = optics.lateralChromaticAberration * 0.0018f * radialDist;
+              float2 uvR = 0.5f + (uv - 0.5f) * (1.0f + caShift);
+              float2 uvG = uv;
+              float2 uvB = 0.5f + (uv - 0.5f) * (1.0f - caShift * 1.15f);
+          
+              float3 rawSample;
+              rawSample.r = inCameraTex.sample(linSampler, uvR).r;
+              rawSample.g = inCameraTex.sample(linSampler, uvG).g;
+              rawSample.b = inCameraTex.sample(linSampler, uvB).b;
+          
+              // Linearize and convert to ACEScg Scene-Linear Radiance
+              float3 centerLinear = linearP3ToACEScg(displayP3GammaToLinear(rawSample));
+          
+              // Recover highlight headroom for physical specular bokeh & halation
+              float luma = dot(centerLinear, float3(0.2126f, 0.7152f, 0.0722f));
+              if (luma > 0.82f) {
+                  float highlightExpansion = 1.0f + pow((luma - 0.82f) / 0.18f, 2.2f) * 4.5f;
+                  centerLinear *= highlightExpansion;
+              }
+          
+              // 2. Physical Thick-Lens Circle of Confusion (CoC) from LiDAR / Dual-Pixel Depth
+              float3 accumRadiance = centerLinear;
+              if (optics.enableLiDARBokeh != 0) {
+                  float depthMeters = inLiDARDepthTex.sample(linSampler, uv).r;
+                  if (depthMeters <= 0.01f || isnan(depthMeters)) {
+                      depthMeters = optics.focusDistanceMeters;
+                  }
+                  float F = optics.focalLengthMM * 0.001f; // meters
+                  float z = clamp(depthMeters, 0.03f, 50.0f);
+                  float zFocus = clamp(optics.focusDistanceMeters, 0.03f, 50.0f);
+                  float N = max(optics.simulatedApertureFNumber, 0.95f);
+          
+                  // Exact Gaussian thin/thick lens CoC formula
+                  float cocMeters = abs((F * F) / (N * max(zFocus - F, 0.005f)) * ((z - zFocus) / z));
+                  // Convert CoC on iPhone 13 Pro Max sensor (sensor width ~ 7.6mm on 26mm Wide) to pixel radius
+                  float cocRadiusPx = clamp((cocMeters / 0.0076f) * float(width) * 0.45f, 0.0f, 22.0f);
+          
+                  if (cocRadiusPx > 1.05f) {
+                      // 24-tap Golden Angle Spiral Importance Sampling with Polygonal Blade & Cat's Eye Cutoff
+                      const int NUM_TAPS = 24;
+                      const float GOLDEN_ANGLE = 2.39996323f;
+                      float3 bokehSum = centerLinear * 0.15f;
+                      float weightSum = 0.15f;
+                      bool isBehindFocus = (z > zFocus);
+          
+                      for (int i = 0; i < NUM_TAPS; ++i) {
+                          float fi = (float(i) + 0.5f) / float(NUM_TAPS);
+                          float rNorm = sqrt(fi);
+                          float angle = float(i) * GOLDEN_ANGLE;
+                          float2 diskDir = float2(cos(angle), sin(angle)) * rNorm;
+          
+                          // Mechanical Cat's Eye Vignetting: second iris clipping off-axis rays
+                          float2 catEyeCenter = centeredUV * optics.opticalVignettingCatEye * 0.65f;
+                          if (length(diskDir - catEyeCenter) > 1.08f) continue;
+          
+                          // Polygonal Diaphragm Blade check
+                          float polyW = aperturePolygonWeight(diskDir, optics.apertureBladeCount, optics.bladeCurvature);
+                          if (polyW <= 0.01f) continue;
+          
+                          // Spherical Aberration Ring Boost (Over-corrected behind focus -> bright rim; Under-corrected in front -> soft edge)
+                          float saSign = isBehindFocus ? optics.sphericalAberration : -optics.sphericalAberration;
+                          float ringFactor = 1.0f + saSign * (rNorm * rNorm - 0.5f) * 1.35f;
+          
+                          // Aspherical lens molded onion-ring micro-modulation
+                          float onionRing = 1.0f + optics.asphericalOnionRingIntensity * 0.14f * sin(rNorm * 28.0f);
+          
+                          float2 sampleUV = uv + (diskDir * cocRadiusPx) / res;
+                          float sampleDepth = inLiDARDepthTex.sample(linSampler, sampleUV).r;
+                          float depthGate = (sampleDepth >= z - 0.15f) ? 1.0f : 0.25f;
+          
+                          float3 tapSample = linearP3ToACEScg(displayP3GammaToLinear(inCameraTex.sample(linSampler, sampleUV).rgb));
+                          float tapLuma = dot(tapSample, float3(0.2126f, 0.7152f, 0.0722f));
+                          if (tapLuma > 0.80f) {
+                              tapSample *= 1.0f + pow((tapLuma - 0.80f) / 0.20f, 2.2f) * 5.0f;
+                          }
+          
+                          float w = max(0.05f, polyW * ringFactor * onionRing * depthGate);
+                          bokehSum += tapSample * w;
+                          weightSum += w;
+                      }
+                      accumRadiance = bokehSum / max(weightSum, 1e-4f);
+                  }
+              }
+          
+              // 3. Fraunhofer Aperture Diffraction Starbursts when stopped down (f/8.0 - f/22.0)
+              if (optics.simulatedApertureFNumber >= 8.0f) {
+                  float diffractionStrength = clamp((optics.simulatedApertureFNumber - 7.5f) / 14.5f, 0.0f, 1.0f);
+                  int numSpikes = (optics.apertureBladeCount % 2 == 0) ? optics.apertureBladeCount : (optics.apertureBladeCount * 2);
+                  float3 spikeAccum = float3(0.0f);
+          
+                  for (int s = 0; s < numSpikes; ++s) {
+                      float spikeAngle = float(s) * (2.0f * M_PI_F / float(numSpikes)) + 0.26f;
+                      float2 spikeDir = float2(cos(spikeAngle), sin(spikeAngle)) / res;
+                      for (int step = 1; step <= 6; ++step) {
+                          float distPx = float(step) * 3.5f;
+                          float3 sCol = linearP3ToACEScg(displayP3GammaToLinear(inCameraTex.sample(linSampler, uv + spikeDir * distPx).rgb));
+                          float sLuma = dot(sCol, float3(0.2126f, 0.7152f, 0.0722f));
+                          if (sLuma > 0.88f) {
+                              float falloff = exp(-float(step) * 0.45f) * (sLuma - 0.88f) * 2.5f;
+                              spikeAccum += sCol * falloff;
+                          }
+                      }
+                  }
+                  accumRadiance += spikeAccum * diffractionStrength * 0.28f;
+              }
+          
+              // 4. Natural Optical Vignetting: cos^4(theta) law
+              float halfDiagonalMM = 21.63f; // 35mm full-frame equivalent half-diagonal
+              float rMM = (radialDist * 0.5f) * halfDiagonalMM;
+              float tanTheta = rMM / max(optics.focalLengthMM, 12.0f);
+              float cosTheta = 1.0f / sqrt(1.0f + tanTheta * tanTheta);
+              float cos4Attenuation = pow(cosTheta, 4.0f * optics.cosFourthFalloffStrength);
+              accumRadiance *= clamp(cos4Attenuation, 0.15f, 1.0f);
+          
+              outLinearTex.write(float4(accumRadiance, 1.0f), gid);
+          }
+          
+          // ============================================================================
+          // KERNEL 2: AUTHORITATIVE FILM EMULSION SENSITOMETRY & CHEMICAL DEVELOPMENT
+          //           (SPECTRAL SENSITIVITY, RECIPROCITY FAILURE, HALATION, H-D CURVES,
+          //            ARRHENIUS DEVELOPMENT KINETICS, DIR COUPLERS, EBERHARD & 3D GRAIN)
+          // ============================================================================
+          
+          inline float evalHurterDriffieldLayer(
+              float logH,
+              float dMin,
+              float dMax,
+              float gamma,
+              float logH0,
+              float toeCurvature,
+              float shoulderCurvature,
+              bool isReversalSlide
+          ) {
+              float x = logH - logH0;
+              float span = max(dMax - dMin, 0.1f);
+              // Asymmetric Generalized Logistic Function modeling distinct Toe & Shoulder roll-off
+              float asymmetry = (x < 0.0f) ? max(toeCurvature, 0.35f) : max(shoulderCurvature, 0.35f);
+              float exponent = -4.0f * gamma * x / (span * asymmetry);
+              float normalizedDensity = pow(1.0f + exp(clamp(exponent * asymmetry, -20.0f, 20.0f)), -1.0f / asymmetry);
+          
+              if (isReversalSlide) {
+                  // E-6 Reversal Film: High exposure bleaches silver, reducing positive dye density
+                  return dMin + span * (1.0f - normalizedDensity);
+              } else {
+                  // Negative Film (C-41 / B&W / ECN-2): Higher exposure forms higher silver/dye density
+                  return dMin + span * normalizedDensity;
+              }
+          }
+          
+          kernel void k_film_emulsion_pass(
+              texture2d<float, access::sample> inOpticsLinearTex [[texture(0)]],
+              texture2d<float, access::write>  outFilmDensityTex [[texture(1)]],
+              constant FilmEmulsionUniforms&   film              [[buffer(0)]],
+              uint2 gid                                          [[thread_position_in_grid]]
+          ) {
+              uint width = outFilmDensityTex.get_width();
+              uint height = outFilmDensityTex.get_height();
+              if (gid.x >= width || gid.y >= height) return;
+          
+              constexpr sampler linSampler(coord::normalized, address::clamp_to_edge, filter::linear);
+              float2 res = float2(width, height);
+              float2 uv = (float2(gid) + 0.5f) / res;
+          
+              float3 sceneLinear = inOpticsLinearTex.sample(linSampler, uv).rgb;
+          
+              // 1. Anti-Halation Layer Scatter (Double-Exponential Back-Reflection from Film Base into Red & Green Layers)
+              if (film.halationReflectance > 0.001f) {
+                  float2 pxStep = 1.0f / res;
+                  float redScatter = 0.0f;
+                  float weightNorm = 0.0f;
+                  const float2 offsets[12] = {
+                      float2(1, 0), float2(-1, 0), float2(0, 1), float2(0, -1),
+                      float2(0.707f, 0.707f), float2(-0.707f, 0.707f), float2(0.707f, -0.707f), float2(-0.707f, -0.707f),
+                      float2(2.2f, 0.0f), float2(-2.2f, 0.0f), float2(0.0f, 2.2f), float2(0.0f, -2.2f)
+                  };
+                  for (int i = 0; i < 12; ++i) {
+                      float2 hUV = uv + offsets[i] * pxStep * film.halationRadiusPixels;
+                      float3 sVal = inOpticsLinearTex.sample(linSampler, hUV).rgb;
+                      float excessR = max(0.0f, sVal.r - film.halationThreshold);
+                      float w = exp(-length(offsets[i]) * 0.75f);
+                      redScatter += excessR * w;
+                      weightNorm += w;
+                  }
+                  redScatter /= max(weightNorm, 1e-4f);
+                  sceneLinear.r += redScatter * film.halationReflectance;
+                  sceneLinear.g += redScatter * film.halationReflectance * film.halationGreenLeak;
+              }
+          
+              // 2. Eberhard Edge Effect / Developer Bromide Drag (Micro-contrast Mackie Lines)
+              if (film.eberhardEdgeBoost > 0.001f) {
+                  float2 d = 1.25f / res;
+                  float3 neighborAvg = 0.25f * (
+                      inOpticsLinearTex.sample(linSampler, uv + float2(d.x, 0)).rgb +
+                      inOpticsLinearTex.sample(linSampler, uv - float2(d.x, 0)).rgb +
+                      inOpticsLinearTex.sample(linSampler, uv + float2(0, d.y)).rgb +
+                      inOpticsLinearTex.sample(linSampler, uv - float2(0, d.y)).rgb
+                  );
+                  // Stand development (low agitationFactor) amplifies local developer exhaustion at edges
+                  float standMultiplier = 1.0f + (1.0f - clamp(film.agitationFactor, 0.2f, 1.2f)) * 0.85f;
+                  sceneLinear = max(float3(1e-5f), sceneLinear + (sceneLinear - neighborAvg) * film.eberhardEdgeBoost * standMultiplier);
+              }
+          
+              // 3. Spectral Sensitivity Integration (Map ACEScg Linear to R/G/B Emulsion Layer Actinic Exposure)
+              float3 layerExposure = max(float3(1e-5f), film.spectralMatrix * sceneLinear);
+          
+              // Apply Exposure Index (Push/Pull rating compensation)
+              float eiRatio = film.exposureIndexRated / max(film.isoNominal, 1.0f);
+              layerExposure *= eiRatio;
+          
+              // 4. Schwarzschild Reciprocity Failure for Long Exposures (t > 1.0s)
+              if (film.exposureTimeSeconds > 1.0f) {
+                  float3 p = float3(film.reciprocityExponentRGB[0], film.reciprocityExponentRGB[1], film.reciprocityExponentRGB[2]);
+                  float3 reciprocityAttenuation = pow(float3(film.exposureTimeSeconds), p - 1.0f);
+                  layerExposure *= reciprocityAttenuation;
+              }
+          
+              // Log10 Exposure H = log10(E)
+              float3 logH = log10(max(layerExposure, float3(1e-5f)));
+          
+              // 5. Arrhenius Chemical Development Kinetics (Temperature & Push/Pull Time Effect on Gamma & Fog)
+              float standardTempC = (film.processType == FilmProcessBWMonochromeNegative) ? 20.0f :
+                                    (film.processType == FilmProcessECN2CinemaNegative ? 41.1f : 37.8f);
+              float tempDelta = film.developerTemperatureC - standardTempC;
+              // Every +1°C accelerates chemical rate constant k by ~8% (Arrhenius activation energy for p-phenylenediamine / metol-hydroquinone)
+              float arrheniusRate = exp(0.076f * tempDelta) * film.developmentTimeScale;
+              float agitationGammaMod = mix(0.84f, 1.08f, clamp(film.agitationFactor, 0.2f, 1.2f));
+              float kineticGammaScale = clamp(arrheniusRate * agitationGammaMod, 0.45f, 2.40f);
+              float fogIncrease = max(0.0f, (arrheniusRate - 1.0f) * 0.08f);
+          
+              bool isReversal = (film.processType == FilmProcessE6ColorReversal);
+              float3 densityRGB;
+              for (int c = 0; c < 3; ++c) {
+                  densityRGB[c] = evalHurterDriffieldLayer(
+                      logH[c],
+                      film.dMinRGB[c] + fogIncrease,
+                      film.dMaxRGB[c],
+                      film.gammaRGB[c] * kineticGammaScale,
+                      film.logH0RGB[c],
+                      film.toeCurvatureRGB[c],
+                      film.shoulderCurvatureRGB[c],
+                      isReversal
+                  );
+              }
+          
+              // 6. DIR (Development Inhibitor Releasing) Couplers Inter-Image Matrix
+              float3 baseDensity = float3(film.dMinRGB[0], film.dMinRGB[1], film.dMinRGB[2]);
+              float3 netDensity = max(float3(0.0f), densityRGB - baseDensity);
+              netDensity = max(float3(0.0f), film.dirCouplerMatrix * netDensity);
+          
+              // 7. Procedural 3D Monte Carlo Silver Halide Grain (Coupled to Official Diffuse RMS Granularity sigma_D)
+              // Scale coordinates to equivalent 35mm film plane (36mm x 24mm = 36000um x 24000um, 48um densitometer aperture)
+              float2 filmMicrons = uv * float2(36000.0f, 24000.0f);
+              float cellScale = (film.grainMorphology == GrainMorphologyCubic) ? 0.14f :
+                                (film.grainMorphology == GrainMorphologyTabular ? 0.19f : 0.24f);
+              float2 grainCoord = filmMicrons * cellScale;
+              uint2 cellID = uint2(max(float2(0.0f), floor(grainCoord)));
+              float2 cellFract = fract(grainCoord);
+          
+              // 2x2 Cellular Poisson Crystal Cluster Evaluation
+              float3 grainModulation = float3(0.0f);
+              for (int dy = -1; dy <= 1; ++dy) {
+                  for (int dx = -1; dx <= 1; ++dx) {
+                      uint3 seed = uint3(uint(int(cellID.x) + dx), uint(int(cellID.y) + dy), film.frameRandomSeed);
+                      float3 randA = hash33(seed);
+                      float3 randB = hash33(seed + uint3(73u, 151u, 313u));
+                      float2 crystalPos = float2(dx, dy) + randA.xy - cellFract;
+          
+                      // T-Grain tabular crystals have slightly anisotropic aspect ratio; Cubic crystals are isotropic
+                      if (film.grainMorphology == GrainMorphologyTabular) {
+                          crystalPos.x *= 0.82f;
+                      }
+                      float distSq = dot(crystalPos, crystalPos);
+                      float kernelEnv = exp(-distSq * 3.8f);
+                      float3 crystalPolarity = (randB - 0.5f) * 2.0f;
+                      grainModulation += crystalPolarity * kernelEnv;
+                  }
+              }
+          
+              // For B&W film, all three channels share the single silver halide layer's grain structure
+              if (film.processType == FilmProcessBWMonochromeNegative) {
+                  grainModulation = float3(grainModulation.g);
+              }
+          
+              // Selwyn's Law: RMS density fluctuation scales with sqrt(D) and push-processing gamma
+              float3 selwynWeight = sqrt(clamp(netDensity, 0.05f, 2.5f));
+              float pushGrainPenalty = pow(max(1.0f, kineticGammaScale), 0.65f);
+              float rmsScale = (film.diffuseRMSGranularity * 0.0038f) * pushGrainPenalty;
+          
+              densityRGB = baseDensity + max(float3(0.0f), netDensity + grainModulation * selwynWeight * rmsScale);
+          
+              outFilmDensityTex.write(float4(densityRGB, 1.0f), gid);
+          }
+          
+          // ============================================================================
+          // KERNEL 3: DARKROOM ENLARGER, RA-4 COLOR HEAD, ILFORD MULTIGRADE 00-5 PAPER,
+          //           DODGING/BURNING, CHEMICAL TONING & ZONE SYSTEM TELEMETRY
+          // ============================================================================
+          
+          inline float3 zoneSystemFalseColorPalette(int zone) {
+              const float3 palette[11] = {
+                  float3(0.05f, 0.00f, 0.12f), // Zone 0: Total black (Deep Violet)
+                  float3(0.12f, 0.08f, 0.45f), // Zone I: Near black (Indigo)
+                  float3(0.05f, 0.28f, 0.78f), // Zone II: Textured black (Cobalt Blue)
+                  float3(0.00f, 0.62f, 0.76f), // Zone III: Average dark materials (Cyan)
+                  float3(0.10f, 0.68f, 0.38f), // Zone IV: Dark foliage / shadow skin (Teal Green)
+                  float3(0.22f, 0.85f, 0.18f), // Zone V: 18% Middle Gray anchor (Pure Green)
+                  float3(0.68f, 0.88f, 0.12f), // Zone VI: Caucasian skin / light stone (Lime Yellow)
+                  float3(0.98f, 0.82f, 0.05f), // Zone VII: Very light skin / snow with acute side light (Gold Yellow)
+                  float3(0.98f, 0.50f, 0.05f), // Zone VIII: Textured white highlights (Orange)
+                  float3(0.95f, 0.18f, 0.18f), // Zone IX: Glaring white without texture (Crimson Red)
+                  float3(1.00f, 0.85f, 0.96f)  // Zone X: Specular light sources / pure paper base (Magenta White)
+              };
+              return palette[clamp(zone, 0, 10)];
+          }
+          
+          kernel void k_darkroom_enlarger_print_pass(
+              texture2d<float, access::sample> inFilmDensityTex [[texture(0)]],
+              texture2d<float, access::sample> inOpticsLinearTex[[texture(1)]],
+              texture2d<float, access::write>  outDisplayTex    [[texture(2)]],
+              constant FilmEmulsionUniforms&   film             [[buffer(0)]],
+              constant DarkroomPrintUniforms&  darkroom         [[buffer(1)]],
+              device ZoneMeterTelemetry*       telemetry        [[buffer(2)]],
+              uint2 gid                                         [[thread_position_in_grid]]
+          ) {
+              uint width = outDisplayTex.get_width();
+              uint height = outDisplayTex.get_height();
+              if (gid.x >= width || gid.y >= height) return;
+          
+              constexpr sampler linSampler(coord::normalized, address::clamp_to_edge, filter::linear);
+              float2 res = float2(width, height);
+              float2 uv = (float2(gid) + 0.5f) / res;
+          
+              float3 density = inFilmDensityTex.sample(linSampler, uv).rgb;
+              float3 dMin = float3(film.dMinRGB[0], film.dMinRGB[1], film.dMinRGB[2]);
+              float3 netDensity = max(float3(0.0f), density - dMin);
+          
+              // 1. Enlarger Callier Effect (Condenser light scattering increases effective negative contrast)
+              float callierQ = (darkroom.enlargerHeadType == EnlargerLightCondenser) ? 1.16f : 1.00f;
+              netDensity *= callierQ;
+          
+              // 2. Physical Dodging & Burning (Modulates Enlarger Exposure Time on the Paper Plane)
+              float2 dbVec = (uv - darkroom.dodgeBurnCenterUV);
+              dbVec.x *= res.x / res.y;
+              float dbDist = length(dbVec);
+              float dbMask = 1.0f - smoothstep(
+                  max(0.01f, darkroom.dodgeBurnRadius - darkroom.dodgeBurnFeather),
+                  darkroom.dodgeBurnRadius + darkroom.dodgeBurnFeather,
+                  dbDist
+              );
+              float localPrintEV = darkroom.enlargerExposureTimeEV + dbMask * darkroom.dodgeBurnStops;
+              float enlargerTimeGain = exp2(localPrintEV);
+          
+              float3 printLinearReflectance;
+          
+              if (film.processType == FilmProcessE6ColorReversal) {
+                  // E-6 Slide Film Projected Directly on Light Table: Transmittance T = 10^(-D)
+                  float3 slideTransmittance = pow(float3(10.0f), -(netDensity * 0.92f)) * enlargerTimeGain;
+                  printLinearReflectance = clamp(slideTransmittance, 0.001f, 1.5f);
+              } else if (film.processType == FilmProcessBWMonochromeNegative) {
+                  // Ilford Multigrade Variable Contrast Paper Engine (Grades 00 to 5 + Split-Grade)
+                  // Negative transmittance hitting the paper: T = 10^(-D_net)
+                  float negTransmittance = pow(10.0f, -netDensity.g) * enlargerTimeGain;
+                  float logPaperH = log10(max(negTransmittance, 1e-5f));
+          
+                  // Grade 00 (ISO R=180, soft gamma ~ 1.15) to Grade 5 (ISO R=40, hard gamma ~ 3.85)
+                  float gradeNorm = clamp((darkroom.multigradeFilterNumber + 1.0f) / 6.0f, 0.0f, 1.0f);
+                  float paperGamma = mix(1.18f, 3.85f, gradeNorm) * darkroom.paperGamma;
+                  float dMaxPaper = darkroom.paperDMaxRGB[1] + ((darkroom.chemicalToner == ChemicalTonerSelenium) ? 0.14f : 0.0f);
+                  float dMinPaper = darkroom.paperDMinRGB[1];
+          
+                  float paperDensity;
+                  if (darkroom.enableSplitGrade != 0) {
+                      // Split-Grade Printing: Pass 1 with Grade 00 (highlights) + Pass 2 with Grade 5 (deep blacks)
+                      float dSoft = evalHurterDriffieldLayer(logPaperH, dMinPaper, dMaxPaper, 1.22f, -0.42f, 0.65f, 0.70f, false);
+                      float dHard = evalHurterDriffieldLayer(logPaperH, dMinPaper, dMaxPaper, 3.65f, -0.48f, 0.45f, 0.50f, false);
+                      paperDensity = mix(dHard, dSoft, clamp(darkroom.splitGradeSoftBalance, 0.0f, 1.0f));
+                  } else {
+                      paperDensity = evalHurterDriffieldLayer(logPaperH, dMinPaper, dMaxPaper, paperGamma, -0.45f, 0.55f, 0.60f, false);
+                  }
+          
+                  // Convert Paper Reflection Density D_R back to Linear Reflectance R = 10^(-D_R)
+                  float baseReflectance = pow(10.0f, -paperDensity);
+                  float3 paperTint = pow(float3(10.0f), -float3(darkroom.paperDMinRGB[0], darkroom.paperDMinRGB[1], darkroom.paperDMinRGB[2]));
+                  printLinearReflectance = baseReflectance * paperTint;
+          
+                  // Apply Darkroom Chemical Toners (Selenium / Sepia / Gold)
+                  if (darkroom.chemicalToner == ChemicalTonerSelenium) {
+                      // Selenium targets high-density silver shadows (eggplant-violet shift)
+                      float shadowWeight = smoothstep(0.6f, 1.9f, paperDensity) * darkroom.tonerIntensity;
+                      printLinearReflectance *= mix(float3(1.0f), float3(0.96f, 0.89f, 1.06f), shadowWeight);
+                  } else if (darkroom.chemicalToner == ChemicalTonerSepia) {
+                      // Sulfide Sepia bleaches midtones into warm chestnut-gold
+                      float midWeight = smoothstep(0.25f, 1.45f, paperDensity) * darkroom.tonerIntensity;
+                      printLinearReflectance *= mix(float3(1.0f), float3(1.22f, 0.98f, 0.72f), midWeight);
+                  } else if (darkroom.chemicalToner == ChemicalTonerGold) {
+                      float toneWeight = smoothstep(0.3f, 1.8f, paperDensity) * darkroom.tonerIntensity;
+                      printLinearReflectance *= mix(float3(1.0f), float3(0.88f, 0.96f, 1.14f), toneWeight);
+                  }
+              } else {
+                  // RA-4 Color Paper Process (Kodak Endura Premier / Ektacolor Edge with Dichroic Y/M/C Filtration)
+                  // Subtract Orange Mask base density (dMin) and apply Y/M/C subtractive filtration in CC units
+                  float3 ccShift = float3(
+                      -darkroom.filterCyanCC * 0.0025f,
+                      -darkroom.filterMagentaCC * 0.0025f,
+                      -darkroom.filterYellowCC * 0.0025f
+                  );
+                  float3 negTransmittance = pow(float3(10.0f), -(netDensity + ccShift)) * enlargerTimeGain;
+                  float3 logPaperH = log10(max(negTransmittance, float3(1e-5f)));
+          
+                  float3 paperDensity;
+                  for (int c = 0; c < 3; ++c) {
+                      paperDensity[c] = evalHurterDriffieldLayer(
+                          logPaperH[c],
+                          darkroom.paperDMinRGB[c],
+                          darkroom.paperDMaxRGB[c],
+                          darkroom.paperGamma * 2.35f,
+                          -0.46f,
+                          0.52f,
+                          0.58f,
+                          false
+                      );
+                  }
+                  printLinearReflectance = pow(float3(10.0f), -paperDensity);
+              }
+          
+              // Convert ACEScg-referred print reflectance to Display P3
+              float3 displayLinearP3 = acesCgToLinearP3(printLinearReflectance);
+              float3 encodedColor = linearToDisplayP3Gamma(displayLinearP3);
+          
+              // 3. Ansel Adams Zone System Calculation (Zone 0 to Zone X)
+              float3 sceneLin = inOpticsLinearTex.sample(linSampler, uv).rgb;
+              float sceneLuma = max(1e-5f, dot(sceneLin, float3(0.2126f, 0.7152f, 0.0722f)) * (film.exposureIndexRated / max(film.isoNominal, 1.0f)));
+              // 18% Middle Gray (0.18) maps to Zone V (5)
+              float stopsFromMiddleGray = log2(sceneLuma / 0.18f);
+              int zoneIndex = clamp(int(round(stopsFromMiddleGray + 5.0f)), 0, 10);
+          
+              // Update Telemetry Buffer from the 1-degree Spot Meter Target Pixel
+              uint2 spotPx = uint2(clamp(darkroom.spotMeterTargetUV, 0.0f, 0.999f) * res);
+              if (gid.x == spotPx.x && gid.y == spotPx.y) {
+                  telemetry->spotLinearLuminance = sceneLuma;
+                  telemetry->spotEV100 = log2(max(sceneLuma, 1e-5f) * 100.0f / 12.5f);
+                  telemetry->adamsZoneIndex = zoneIndex;
+                  telemetry->filmDensityRGB[0] = density.r;
+                  telemetry->filmDensityRGB[1] = density.g;
+                  telemetry->filmDensityRGB[2] = density.b;
+              }
+          
+              // Optional Zone System False Color Overlay
+              if (darkroom.enableZoneFalseColor != 0) {
+                  float3 zoneCol = zoneSystemFalseColorPalette(zoneIndex);
+                  encodedColor = mix(encodedColor, zoneCol, 0.78f);
+              }
+          
+              // Optional Focus Peaking Overlay (High-pass Sobel edge detection on linear radiance)
+              if (darkroom.enableFocusPeaking != 0) {
+                  float2 px = 1.0f / res;
+                  float gx = dot(inOpticsLinearTex.sample(linSampler, uv + float2(px.x, 0)).rgb -
+                                 inOpticsLinearTex.sample(linSampler, uv - float2(px.x, 0)).rgb, float3(0.333f));
+                  float gy = dot(inOpticsLinearTex.sample(linSampler, uv + float2(0, px.y)).rgb -
+                                 inOpticsLinearTex.sample(linSampler, uv - float2(0, px.y)).rgb, float3(0.333f));
+                  float edgeMag = sqrt(gx * gx + gy * gy);
+                  if (edgeMag > 0.18f) {
+                      encodedColor = float3(0.10f, 1.00f, 0.45f);
+                  }
+              }
+          
+              outDisplayTex.write(float4(encodedColor, 1.0f), gid);
+          }
+          EOF_HALIDE_FILE
+
+          cat << 'EOF_HALIDE_FILE' > "HalideLabPro/Hardware/MechanicalHapticsAndMotion.swift"
+          import Foundation
+          import CoreHaptics
+          import CoreMotion
+          import Combine
+          
+          /// Synthesizes tactile mechanical camera feedback (Leica/Hasselblad aperture detent clicks,
+          /// rangefinder helicoid damping, dual-curtain focal-plane shutter & film advance lever)
+          /// and provides a 120Hz 3-axis gyroscope horizon level.
+          final class MechanicalHapticsAndMotion: ObservableObject {
+              static let shared = MechanicalHapticsAndMotion()
+          
+              @Published var rollDegrees: Double = 0.0
+              @Published var pitchDegrees: Double = 0.0
+              @Published var isLevelAligned: Bool = false
+          
+              private var hapticEngine: CHHapticEngine?
+              private let motionManager = CMMotionManager()
+          
+              private init() {
+                  setupHapticEngine()
+                  startGyroscopeHorizonUpdates()
+              }
+          
+              private func setupHapticEngine() {
+                  guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else { return }
+                  do {
+                      hapticEngine = try CHHapticEngine()
+                      hapticEngine?.playsHapticsOnly = true
+                      hapticEngine?.isAutoShutdownEnabled = true
+                      try hapticEngine?.start()
+                  } catch {
+                      print("CoreHaptics initialization warning: \(error.localizedDescription)")
+                  }
+              }
+          
+              /// Crisp 1/3-stop anodized metal ball-bearing detent click for Aperture & Shutter Dials
+              func playApertureDetentClick(intensity: Float = 0.78, sharpness: Float = 0.92) {
+                  guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else { return }
+                  let event = CHHapticEvent(
+                      eventType: .hapticTransient,
+                      parameters: [
+                          CHHapticEventParameter(parameterID: .hapticIntensity, value: intensity),
+                          CHHapticEventParameter(parameterID: .hapticSharpness, value: sharpness)
+                      ],
+                      relativeTime: 0
+                  )
+                  playEvents([event])
+              }
+          
+              /// Subtle damped grease resistance tick for manual focus helicoid ring
+              func playFocusHelicoidTick() {
+                  playApertureDetentClick(intensity: 0.38, sharpness: 0.45)
+              }
+          
+              /// Two-stage mechanical focal-plane curtain shutter (Front curtain release + exposure delay + Rear curtain thud)
+              func playMechanicalShutterRelease(shutterDurationSeconds: Double) {
+                  guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else { return }
+                  let clampedDelay = min(max(shutterDurationSeconds, 0.012), 1.5)
+                  let frontCurtain = CHHapticEvent(
+                      eventType: .hapticTransient,
+                      parameters: [
+                          CHHapticEventParameter(parameterID: .hapticIntensity, value: 0.95),
+                          CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.88)
+                      ],
+                      relativeTime: 0.0
+                  )
+                  let mirrorDamp = CHHapticEvent(
+                      eventType: .hapticContinuous,
+                      parameters: [
+                          CHHapticEventParameter(parameterID: .hapticIntensity, value: 0.35),
+                          CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.25)
+                      ],
+                      relativeTime: 0.008,
+                      duration: 0.035
+                  )
+                  let rearCurtain = CHHapticEvent(
+                      eventType: .hapticTransient,
+                      parameters: [
+                          CHHapticEventParameter(parameterID: .hapticIntensity, value: 1.0),
+                          CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.62)
+                      ],
+                      relativeTime: clampedDelay
+                  )
+                  playEvents([frontCurtain, mirrorDamp, rearCurtain])
+              }
+          
+              /// Ratcheting brass gear train sensation when winding the film advance lever
+              func playFilmAdvanceLeverWind() {
+                  guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else { return }
+                  var events: [CHHapticEvent] = []
+                  for i in 0..<8 {
+                      let t = TimeInterval(i) * 0.032
+                      let progress = Float(i) / 7.0
+                      let ev = CHHapticEvent(
+                          eventType: .hapticTransient,
+                          parameters: [
+                              CHHapticEventParameter(parameterID: .hapticIntensity, value: 0.45 + 0.45 * progress),
+                              CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.70 + 0.25 * progress)
+                          ],
+                          relativeTime: t
+                      )
+                      events.append(ev)
+                  }
+                  playEvents(events)
+              }
+          
+              private func playEvents(_ events: [CHHapticEvent]) {
+                  guard let engine = hapticEngine else { return }
+                  do {
+                      try engine.start()
+                      let pattern = try CHHapticPattern(events: events, parameters: [])
+                      let player = try engine.makePlayer(with: pattern)
+                      try player.start(atTime: CHHapticTimeImmediate)
+                  } catch {
+                      // Silently ignore if engine is temporarily preempted
+                  }
+              }
+          
+              private func startGyroscopeHorizonUpdates() {
+                  guard motionManager.isDeviceMotionAvailable else { return }
+                  motionManager.deviceMotionUpdateInterval = 1.0 / 60.0
+                  motionManager.startDeviceMotionUpdates(to: .main) { [weak self] motion, _ in
+                      guard let self = self, let attitude = motion?.attitude else { return }
+                      let degRoll = attitude.roll * 180.0 / .pi
+                      let degPitch = (attitude.pitch + (.pi / 2.0)) * 180.0 / .pi
+                      self.rollDegrees = degRoll
+                      self.pitchDegrees = degPitch
+                      self.isLevelAligned = abs(degRoll) < 0.8 && abs(degPitch) < 1.2
+                  }
+              }
+          }
+          EOF_HALIDE_FILE
+
+          cat << 'EOF_HALIDE_FILE' > "HalideLabPro/App/HalideLabProApp.swift"
+          import SwiftUI
+          
+          @main
+          struct HalideLabProApp: App {
+              var body: some Scene {
+                  WindowGroup {
+                      MechanicalCameraView()
+                          .preferredColorScheme(.dark)
+                          .statusBar(hidden: true)
+                  }
+              }
+          }
+          EOF_HALIDE_FILE
+
+          cat << 'EOF_HALIDE_FILE' > "HalideLabPro/Bridge/ShaderBridgeTypes.h"
+          #ifndef ShaderBridgeTypes_h
+          #define ShaderBridgeTypes_h
+          
+          #ifdef __METAL_VERSION__
+          #define NS_ENUM(_type, _name) enum _name : _type _name; enum _name : _type
+          #define NSInteger metal::int32_t
+          #include <metal_stdlib>
+          using namespace metal;
+          #else
+          #import <Foundation/Foundation.h>
+          #import <simd/simd.h>
+          #endif
+          
+          // Grain Morphology Enum matching authentic silver halide crystal structures
+          typedef NS_ENUM(int32_t, GrainMorphologyType) {
+              GrainMorphologyCubic   = 0, // Classic Cubic Crystal (e.g. Kodak Tri-X 400, Ilford HP5 Plus)
+              GrainMorphologyTabular = 1, // Flat T-Grain / Sub-Micron Crystal (e.g. Portra 400, T-Max 400, Vision3 500T)
+              GrainMorphologyFineE6  = 2  // Ultra-fine Reversal Coupler Micelles (e.g. Velvia 50, Provia 100F)
+          };
+          
+          // Film Process Chemistry Type
+          typedef NS_ENUM(int32_t, FilmProcessType) {
+              FilmProcessC41ColorNegative     = 0, // Standard Color Negative (37.8°C)
+              FilmProcessBWMonochromeNegative = 1, // Black & White Silver Halide (20.0°C)
+              FilmProcessE6ColorReversal      = 2, // Slide / Reversal Positive (38.0°C)
+              FilmProcessECN2CinemaNegative   = 3, // Motion Picture Negative with Remjet (41.1°C)
+              FilmProcessC41CrossRemjetFree   = 4  // CineStill 800T Remjet-Free C-41 Cross-Process
+          };
+          
+          // Darkroom Enlarger Light Source Type
+          typedef NS_ENUM(int32_t, EnlargerLightHeadType) {
+              EnlargerLightCondenser = 0, // Point source + Condenser lenses (High Callier Factor Q ~ 1.35, crisp grain)
+              EnlargerLightDiffuser  = 1  // Dichroic mixing box / Cold cathode (Callier Factor Q ~ 1.05, smooth tonal transitions)
+          };
+          
+          // Darkroom Chemical Toner Type
+          typedef NS_ENUM(int32_t, ChemicalTonerType) {
+              ChemicalTonerNone     = 0,
+              ChemicalTonerSelenium = 1, // Kodak Rapid Selenium Toner (1+19): deepens Dmax (+0.15) & cool eggplant shadow tint
+              ChemicalTonerSepia    = 2, // Sulfide Bleach & Redevelop: warm chestnut midtones
+              ChemicalTonerGold     = 3  // Gold Chloride protective blue-black shift
+          };
+          
+          // Stage 1: Physical Optics Uniforms (iPhone 13 Pro Max 13mm / 26mm / 77mm + Simulated Mechanical Lens)
+          struct PhysicalOpticsUniforms {
+              float focalLengthMM;            // 13.0, 26.0, or 77.0 (or simulated 35mm/50mm/85mm)
+              float nativeApertureFNumber;    // Hardware f/1.8, f/1.5, or f/2.8
+              float simulatedApertureFNumber; // User-selected mechanical aperture f/1.2 - f/22.0
+              float focusDistanceMeters;      // Focus plane distance in meters (0.02m - 50.0m)
+              int32_t apertureBladeCount;     // 5, 6, 7, 8, or 9 blades
+              float bladeCurvature;           // 0.0 (straight polygon) to 1.0 (circular)
+              float sphericalAberration;      // -1.0 (under-corrected dreamy front bokeh) to +1.0 (over-corrected soap-bubble ring bokeh)
+              float opticalVignettingCatEye;  // Mechanical barrel cutoff at edges (Cat's eye bokeh factor 0.0 - 1.0)
+              float cosFourthFalloffStrength; // Natural cos^4(theta) illumination falloff
+              float lateralChromaticAberration; // R/B radial magnification shift in microns
+              float asphericalOnionRingIntensity; // Micro-grooves inside bokeh discs
+              int32_t enableLiDARBokeh;       // 1 if LiDAR/PDAF depth map is active
+          };
+          
+          // Stage 2: Authoritative Film Emulsion & Development Kinetics Uniforms
+          struct FilmEmulsionUniforms {
+              int32_t processType;            // FilmProcessType
+              int32_t grainMorphology;        // GrainMorphologyType
+              float isoNominal;               // e.g. 400.0, 50.0, 100.0, 500.0, 800.0
+              float exposureIndexRated;       // User rated EI (e.g. pushed to 1600.0)
+              float exposureTimeSeconds;      // Actual shutter speed for Schwarzschild reciprocity failure
+              float reciprocityExponentRGB[3];// Schwarzschild p factor per emulsion layer (e.g. [0.86, 0.88, 0.83])
+              
+              // Hurter-Driffield (H-D) Sensitometric Curve Parameters per layer (Red/Cyan, Green/Magenta, Blue/Yellow)
+              float dMinRGB[3];               // Base + Fog density (including Orange Mask for C-41/ECN-2)
+              float dMaxRGB[3];               // Maximum saturation density
+              float gammaRGB[3];              // Straight-line slope (Contrast gamma at nominal development)
+              float logH0RGB[3];              // Speed point (Log exposure at midpoint density)
+              float toeCurvatureRGB[3];       // Toe roll-in softness
+              float shoulderCurvatureRGB[3];  // Shoulder roll-off latitude (+4 EV retention)
+              
+              // Spectral Sensitivity Cross-Talk Matrix (Linear ACEScg -> Emulsion Layer Actinic Exposure)
+              simd_float3x3 spectralMatrix;
+              
+              // DIR (Development Inhibitor Releasing) Couplers Inter-Image Matrix (3x3 with negative off-diagonals)
+              simd_float3x3 dirCouplerMatrix;
+              
+              // Anti-Halation & Base Scatter Parameters
+              float halationReflectance;      // Red layer back-scatter intensity (0.04 for Portra, 0.38 for Remjet-free CineStill 800T)
+              float halationGreenLeak;        // Secondary leakage into Green emulsion layer
+              float halationThreshold;        // Linear radiance threshold for halation onset
+              float halationRadiusPixels;     // Spatial scatter radius in pixels
+              
+              // Microstructure: Diffuse RMS Granularity & MTF Eberhard Edge Effect
+              float diffuseRMSGranularity;    // Official datasheet sigma_D * 1000 (e.g. 8.0 for Provia, 11.0 for Portra 400, 17.0 for Tri-X 400)
+              float eberhardEdgeBoost;        // Developer exhaustion Mackie line micro-contrast boost (0.0 - 0.35)
+              float mtf50CyclesPerMM;         // Spatial frequency where MTF drops to 50%
+              
+              // Darkroom Chemical Development Kinetics (User adjustable)
+              float developerTemperatureC;    // e.g. 37.8°C (C-41) or 20.0°C (B&W)
+              float developmentTimeScale;     // 1.0 = normal, 1.35 = +1 EV Push, 1.85 = +2 EV Push, 0.75 = -1 EV Pull
+              float agitationFactor;          // 0.2 (Stand development: high edge acutance, compressed highlights) to 1.2 (Continuous rotary)
+              uint32_t frameRandomSeed;       // Monte Carlo seed per frame for authentic non-static silver halide grain
+          };
+          
+          // Stage 3: Darkroom Enlarger & Photographic Paper Print Uniforms
+          struct DarkroomPrintUniforms {
+              int32_t enlargerHeadType;       // EnlargerLightCondenser vs EnlargerLightDiffuser
+              float enlargerExposureTimeEV;   // Enlarger timer offset in stops (-3.0 to +3.0 EV)
+              
+              // RA-4 Dichroic Color Head Filtration (0 - 200 CC units)
+              float filterYellowCC;
+              float filterMagentaCC;
+              float filterCyanCC;
+              
+              // Ilford Multigrade Variable Contrast Filtration (Grade 00 = -1.0 to Grade 5 = +5.0)
+              float multigradeFilterNumber;   // 0.0 (Grade 00), 2.0 (Grade 2), 5.0 (Grade 5)
+              int32_t enableSplitGrade;       // 1 = Split-grade two-pass exposure (Soft Grade 00 + Hard Grade 5)
+              float splitGradeSoftBalance;    // Ratio of Grade 00 to Grade 5 exposure
+              
+              // Paper Sensitometry (Kodak Endura Premier / Ektacolor Edge / Ilford Multigrade RC/FB)
+              float paperDMinRGB[3];          // Paper base white reflectance density (e.g. Warmtone vs Neutral vs Pearl)
+              float paperDMaxRGB[3];          // Deep silver/dye black maximum reflection density (~2.15 - 2.25)
+              float paperGamma;               // Intrinsic paper slope
+              
+              // Physical Dodging & Burning Interactive Radial Tool
+              simd_float2 dodgeBurnCenterUV;  // Normalized (0..1, 0..1) center of enlarger hand/card tool
+              float dodgeBurnRadius;          // Normalized radius
+              float dodgeBurnFeather;         // Feather softness
+              float dodgeBurnStops;           // Negative = Dodge (hold back light), Positive = Burn (add light)
+              
+              // Chemical Toning & Viewfinder Overlays
+              int32_t chemicalToner;          // ChemicalTonerType
+              float tonerIntensity;           // 0.0 - 1.0
+              int32_t enableZoneFalseColor;   // 1 = Render Ansel Adams Zone System (Zone 0 - Zone X) false color overlay
+              int32_t enableFocusPeaking;     // 1 = Highlight in-focus high-frequency edges
+              simd_float2 spotMeterTargetUV;  // 1-degree Spot Meter reticle UV coordinates
+          };
+          
+          // Real-time Telemetry Readback Buffer (GPU -> CPU at 120Hz)
+          struct ZoneMeterTelemetry {
+              float spotLinearLuminance;      // Measured scene-linear luminance at reticle
+              float spotEV100;                // Equivalent EV at ISO 100
+              int32_t adamsZoneIndex;         // 0 (Zone 0) to 10 (Zone X)
+              float filmDensityRGB[3];        // Resulting R, G, B optical density on the negative at spot
+              uint32_t zoneHistogram[11];     // Pixel count across Zones 0..X
+          };
+          
+          #endif /* ShaderBridgeTypes_h */
+          EOF_HALIDE_FILE
+
+          cat << 'EOF_HALIDE_FILE' > "HalideLabPro/Engine/MetalRenderEngine.swift"
+          import Foundation
+          import Metal
+          import MetalKit
+          import CoreImage
+          import UIKit
+          
+          /// Drives the 3-stage First-Principles Metal Compute Pipeline at 60/120Hz on iPhone 13 Pro Max (A15 Bionic 5-Core GPU).
+          final class MetalRenderEngine: NSObject, ObservableObject, MTKViewDelegate {
+              let device: MTLDevice
+              let commandQueue: MTLCommandQueue
+          
+              private var opticsPipeline: MTLComputePipelineState!
+              private var emulsionPipeline: MTLComputePipelineState!
+              private var darkroomPrintPipeline: MTLComputePipelineState!
+          
+              // Intermediate RGBA16Float Linear / Optical Density Textures
+              private var opticsLinearTexture: MTLTexture?
+              private var filmDensityTexture: MTLTexture?
+              private var syntheticCameraTexture: MTLTexture?
+              private var syntheticDepthTexture: MTLTexture?
+          
+              // Shared GPU -> CPU Telemetry Buffer for 1-degree Spot Meter & Ansel Adams Zone System
+              private var telemetryBuffer: MTLBuffer!
+          
+              // Real-time Observable Parameters
+              @Published var selectedFilm: FilmStockDescriptor = FilmStockDatabase.allFilms[0] // Kodak Portra 400
+              @Published var selectedPaper: DarkroomPaperDescriptor = FilmStockDatabase.allPapers[0] // Kodak Endura Premier
+          
+              // Optical Parameters
+              @Published var simulatedApertureFNumber: Float = 1.5
+              @Published var shutterSpeedSeconds: Float = 1.0 / 125.0
+              @Published var focusDistanceMeters: Float = 1.2
+              @Published var apertureBladeCount: Int32 = 8
+              @Published var bladeCurvature: Float = 0.25
+              @Published var sphericalAberration: Float = 0.15
+              @Published var opticalVignettingCatEye: Float = 0.42
+              @Published var cosFourthFalloffStrength: Float = 0.65
+              @Published var lateralChromaticAberration: Float = 0.30
+              @Published var asphericalOnionRingIntensity: Float = 0.20
+              @Published var enableLiDARBokeh: Bool = true
+          
+              // Emulsion & Chemical Development Parameters
+              @Published var ratedEI: Float = 400.0
+              @Published var developerTemperatureC: Float = 37.8
+              @Published var developmentTimeScale: Float = 1.0 // 1.0 = Standard, 1.35 = +1 EV Push, 1.85 = +2 EV Push
+              @Published var agitationFactor: Float = 0.85
+          
+              // Darkroom Enlarger & Print Parameters
+              @Published var enlargerHeadType: EnlargerLightHeadType = .Diffuser
+              @Published var enlargerExposureTimeEV: Float = 0.0
+              @Published var filterYellowCC: Float = 0.0
+              @Published var filterMagentaCC: Float = 0.0
+              @Published var filterCyanCC: Float = 0.0
+              @Published var multigradeFilterNumber: Float = 2.0 // Grade 2 Neutral
+              @Published var enableSplitGrade: Bool = false
+              @Published var splitGradeSoftBalance: Float = 0.5
+              @Published var chemicalToner: ChemicalTonerType = .None
+              @Published var tonerIntensity: Float = 0.55
+          
+              // Dodging & Burning Tool
+              @Published var dodgeBurnCenterUV: SIMD2<Float> = SIMD2<Float>(0.5, 0.5)
+              @Published var dodgeBurnRadius: Float = 0.25
+              @Published var dodgeBurnFeather: Float = 0.12
+              @Published var dodgeBurnStops: Float = 0.0
+          
+              // Viewfinder Overlays & Telemetry
+              @Published var enableZoneFalseColor: Bool = false
+              @Published var enableFocusPeaking: Bool = false
+              @Published var spotMeterTargetUV: SIMD2<Float> = SIMD2<Float>(0.5, 0.5)
+              @Published var currentAdamsZone: Int = 5
+              @Published var currentSpotEV100: Float = 12.0
+              @Published var currentSpotDensityRGB: SIMD3<Float> = SIMD3<Float>(0.5, 0.8, 1.1)
+          
+              weak var cameraPipeline: CameraCapturePipeline?
+              private var frameCounter: UInt32 = 1
+              private var latestDrawableTexture: MTLTexture?
+              private let ciContext: CIContext
+          
+              override init() {
+                  guard let dev = MTLCreateSystemDefaultDevice(),
+                        let queue = dev.makeCommandQueue() else {
+                      fatalError("Metal 3 GPU device required.")
+                  }
+                  self.device = dev
+                  self.commandQueue = queue
+                  self.ciContext = CIContext(mtlDevice: dev, options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearDisplayP3)!])
+                  super.init()
+          
+                  buildComputePipelines()
+                  buildSyntheticFallbackTextures()
+                  telemetryBuffer = device.makeBuffer(length: MemoryLayout<ZoneMeterTelemetry>.stride, options: .storageModeShared)
+              }
+          
+              private func buildComputePipelines() {
+                  guard let library = device.makeDefaultLibrary() else {
+                      fatalError("Failed to load compiled AnalogPipelineShaders.metallib")
+                  }
+                  do {
+                      opticsPipeline = try device.makeComputePipelineState(function: library.makeFunction(name: "k_physical_optics_pass")!)
+                      emulsionPipeline = try device.makeComputePipelineState(function: library.makeFunction(name: "k_film_emulsion_pass")!)
+                      darkroomPrintPipeline = try device.makeComputePipelineState(function: library.makeFunction(name: "k_darkroom_enlarger_print_pass")!)
+                  } catch {
+                      fatalError("Metal compute pipeline compilation error: \(error)")
+                  }
+              }
+          
+              /// Generates a rich high-dynamic-range synthetic test scene + depth map when running in Simulator or before camera warm-up
+              private func buildSyntheticFallbackTextures() {
+                  let w = 720
+                  let h = 960
+                  let camDesc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: w, height: h, mipmapped: false)
+                  camDesc.usage = [.shaderRead]
+                  let camTex = device.makeTexture(descriptor: camDesc)!
+          
+                  let depthDesc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .r32Float, width: w, height: h, mipmapped: false)
+                  depthDesc.usage = [.shaderRead]
+                  let dTex = device.makeTexture(descriptor: depthDesc)!
+          
+                  var rgbaBytes = [UInt8](repeating: 0, count: w * h * 4)
+                  var depthFloats = [Float](repeating: 1.2, count: w * h)
+          
+                  for y in 0..<h {
+                      let ny = Float(y) / Float(h)
+                      for x in 0..<w {
+                          let nx = Float(x) / Float(w)
+                          let idx = (y * w + x) * 4
+          
+                          // Create a studio portrait + neon point lights + Macbeth color patches scene
+                          let dx = nx - 0.5
+                          let dy = (ny - 0.45) * 1.33
+                          let dist = sqrt(dx * dx + dy * dy)
+          
+                          var r: Float = 0.14 + 0.25 * (1.0 - ny)
+                          var g: Float = 0.16 + 0.18 * nx
+                          var b: Float = 0.22 + 0.30 * ny
+                          var z: Float = 4.5 // background at 4.5m
+          
+                          // Foreground subject sphere at 1.2m
+                          if dist < 0.26 {
+                              let sphereZ = sqrt(max(0.0, 0.26 * 0.26 - dist * dist))
+                              let light = max(0.1, (dx * -0.5 + dy * -0.6 + sphereZ * 0.85) / 0.26)
+                              r = min(1.0, 0.78 * light + 0.12)
+                              g = min(1.0, 0.56 * light + 0.08)
+                              b = min(1.0, 0.44 * light + 0.06)
+                              z = 1.2 - sphereZ * 0.5
+                          }
+          
+                          // Specular background streetlamp / neon bokeh highlights for halation & polygonal bokeh verification
+                          let lights: [(Float, Float, Float, Float, Float)] = [
+                              (0.18, 0.20, 1.0, 0.85, 0.55),
+                              (0.82, 0.18, 1.0, 0.35, 0.20),
+                              (0.76, 0.75, 0.45, 0.85, 1.0),
+                              (0.22, 0.78, 1.0, 0.92, 0.70)
+                          ]
+                          for l in lights {
+                              let ldx = nx - l.0
+                              let ldy = (ny - l.1) * 1.33
+                              let lDist = sqrt(ldx * ldx + ldy * ldy)
+                              if lDist < 0.028 {
+                                  r = l.2
+                                  g = l.3
+                                  b = l.4
+                                  z = 8.0
+                              }
+                          }
+          
+                          rgbaBytes[idx + 0] = UInt8(clamping: Int(r * 255.0))
+                          rgbaBytes[idx + 1] = UInt8(clamping: Int(g * 255.0))
+                          rgbaBytes[idx + 2] = UInt8(clamping: Int(b * 255.0))
+                          rgbaBytes[idx + 3] = 255
+                          depthFloats[y * w + x] = z
+                      }
+                  }
+          
+                  camTex.replace(region: MTLRegionMake2D(0, 0, w, h), mipmapLevel: 0, withBytes: rgbaBytes, bytesPerRow: w * 4)
+                  dTex.replace(region: MTLRegionMake2D(0, 0, w, h), mipmapLevel: 0, withBytes: depthFloats, bytesPerRow: w * 4)
+                  self.syntheticCameraTexture = camTex
+                  self.syntheticDepthTexture = dTex
+              }
+          
+              func selectFilmStock(_ stock: FilmStockDescriptor) {
+                  selectedFilm = stock
+                  ratedEI = stock.nominalISO
+                  developerTemperatureC = stock.defaultDeveloperTempC
+                  developmentTimeScale = 1.0
+                  if stock.processType == .BWMonochromeNegative {
+                      if !selectedPaper.isMonochromeMultigrade {
+                          selectedPaper = FilmStockDatabase.allPapers.first(where: { $0.isMonochromeMultigrade }) ?? selectedPaper
+                      }
+                  } else if stock.processType == .C41ColorNegative || stock.processType == .C41CrossRemjetFree || stock.processType == .ECN2CinemaNegative {
+                      if selectedPaper.isMonochromeMultigrade {
+                          selectedPaper = FilmStockDatabase.allPapers.first(where: { !$0.isMonochromeMultigrade }) ?? selectedPaper
+                      }
+                  }
+                  MechanicalHapticsAndMotion.shared.playFilmAdvanceLeverWind()
+              }
+          
+              private func ensureIntermediateTextures(width: Int, height: Int) {
+                  if let existing = opticsLinearTexture, existing.width == width, existing.height == height {
+                      return
+                  }
+                  let desc = MTLTextureDescriptor.texture2DDescriptor(
+                      pixelFormat: .rgba16Float,
+                      width: width,
+                      height: height,
+                      mipmapped: false
+                  )
+                  desc.usage = [.shaderRead, .shaderWrite]
+                  desc.storageMode = .private
+                  opticsLinearTexture = device.makeTexture(descriptor: desc)
+                  filmDensityTexture = device.makeTexture(descriptor: desc)
+              }
+          
+              func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
+          
+              func draw(in view: MTKView) {
+                  guard let drawable = view.currentDrawable,
+                        let commandBuffer = commandQueue.makeCommandBuffer() else { return }
+          
+                  let outTex = drawable.texture
+                  let w = outTex.width
+                  let h = outTex.height
+                  ensureIntermediateTextures(width: w, height: h)
+          
+                  guard let opticsTex = opticsLinearTexture,
+                        let densityTex = filmDensityTexture else { return }
+          
+                  let liveTextures = cameraPipeline?.latestTextures
+                  let inCamTex = liveTextures?.camera ?? syntheticCameraTexture!
+                  let inDepthTex = liveTextures?.depth ?? syntheticDepthTexture!
+          
+                  let activeLens = cameraPipeline?.activeLens ?? .wide26mm
+          
+                  // 1. Build Stage 1 Physical Optics Uniforms
+                  var opticsU = PhysicalOpticsUniforms(
+                      focalLengthMM: activeLens.focalLengthMM,
+                      nativeApertureFNumber: activeLens.nativeApertureFNumber,
+                      simulatedApertureFNumber: simulatedApertureFNumber,
+                      focusDistanceMeters: focusDistanceMeters,
+                      apertureBladeCount: apertureBladeCount,
+                      bladeCurvature: bladeCurvature,
+                      sphericalAberration: sphericalAberration,
+                      opticalVignettingCatEye: opticalVignettingCatEye,
+                      cosFourthFalloffStrength: cosFourthFalloffStrength,
+                      lateralChromaticAberration: lateralChromaticAberration,
+                      asphericalOnionRingIntensity: asphericalOnionRingIntensity,
+                      enableLiDARBokeh: enableLiDARBokeh ? 1 : 0
+                  )
+          
+                  // 2. Build Stage 2 Film Emulsion & Development Kinetics Uniforms
+                  frameCounter &+= 1
+                  var filmU = selectedFilm.buildUniforms(
+                      ratedEI: ratedEI,
+                      shutterSeconds: shutterSpeedSeconds,
+                      devTempC: developerTemperatureC,
+                      devTimeScale: developmentTimeScale,
+                      agitation: agitationFactor,
+                      frameSeed: frameCounter
+                  )
+          
+                  // 3. Build Stage 3 Darkroom Enlarger & Paper Print Uniforms
+                  var darkroomU = DarkroomPrintUniforms(
+                      enlargerHeadType: enlargerHeadType.rawValue,
+                      enlargerExposureTimeEV: enlargerExposureTimeEV,
+                      filterYellowCC: filterYellowCC,
+                      filterMagentaCC: filterMagentaCC,
+                      filterCyanCC: filterCyanCC,
+                      multigradeFilterNumber: multigradeFilterNumber,
+                      enableSplitGrade: enableSplitGrade ? 1 : 0,
+                      splitGradeSoftBalance: splitGradeSoftBalance,
+                      paperDMinRGB: (selectedPaper.dMinRGB.x, selectedPaper.dMinRGB.y, selectedPaper.dMinRGB.z),
+                      paperDMaxRGB: (selectedPaper.dMaxRGB.x, selectedPaper.dMaxRGB.y, selectedPaper.dMaxRGB.z),
+                      paperGamma: selectedPaper.intrinsicGamma,
+                      dodgeBurnCenterUV: dodgeBurnCenterUV,
+                      dodgeBurnRadius: dodgeBurnRadius,
+                      dodgeBurnFeather: dodgeBurnFeather,
+                      dodgeBurnStops: dodgeBurnStops,
+                      chemicalToner: chemicalToner.rawValue,
+                      tonerIntensity: tonerIntensity,
+                      enableZoneFalseColor: enableZoneFalseColor ? 1 : 0,
+                      enableFocusPeaking: enableFocusPeaking ? 1 : 0,
+                      spotMeterTargetUV: spotMeterTargetUV
+                  )
+          
+                  let tgSize = MTLSize(width: 16, height: 16, depth: 1)
+                  let gridSize = MTLSize(width: (w + 15) / 16 * 16, height: (h + 15) / 16 * 16, depth: 1)
+          
+                  if let computeEncoder = commandBuffer.makeComputeCommandEncoder() {
+                      // Pass 1: Physical Optics
+                      computeEncoder.setComputePipelineState(opticsPipeline)
+                      computeEncoder.setTexture(inCamTex, index: 0)
+                      computeEncoder.setTexture(inDepthTex, index: 1)
+                      computeEncoder.setTexture(opticsTex, index: 2)
+                      computeEncoder.setBytes(&opticsU, length: MemoryLayout<PhysicalOpticsUniforms>.stride, index: 0)
+                      computeEncoder.dispatchThreads(gridSize, threadsPerThreadgroup: tgSize)
+          
+                      // Pass 2: Film Emulsion & Development Kinetics
+                      computeEncoder.setComputePipelineState(emulsionPipeline)
+                      computeEncoder.setTexture(opticsTex, index: 0)
+                      computeEncoder.setTexture(densityTex, index: 1)
+                      computeEncoder.setBytes(&filmU, length: MemoryLayout<FilmEmulsionUniforms>.stride, index: 0)
+                      computeEncoder.dispatchThreads(gridSize, threadsPerThreadgroup: tgSize)
+          
+                      // Pass 3: Darkroom Enlarger & Photographic Paper Print
+                      computeEncoder.setComputePipelineState(darkroomPrintPipeline)
+                      computeEncoder.setTexture(densityTex, index: 0)
+                      computeEncoder.setTexture(opticsTex, index: 1)
+                      computeEncoder.setTexture(outTex, index: 2)
+                      computeEncoder.setBytes(&filmU, length: MemoryLayout<FilmEmulsionUniforms>.stride, index: 0)
+                      computeEncoder.setBytes(&darkroomU, length: MemoryLayout<DarkroomPrintUniforms>.stride, index: 1)
+                      computeEncoder.setBuffer(telemetryBuffer, offset: 0, index: 2)
+                      computeEncoder.dispatchThreads(gridSize, threadsPerThreadgroup: tgSize)
+          
+                      computeEncoder.endEncoding()
+                  }
+          
+                  commandBuffer.addCompletedHandler { [weak self] _ in
+                      guard let self = self else { return }
+                      self.latestDrawableTexture = outTex
+                      let ptr = self.telemetryBuffer.contents().bindMemory(to: ZoneMeterTelemetry.self, capacity: 1)
+                      let data = ptr.pointee
+                      if self.frameCounter % 6 == 0 {
+                          DispatchQueue.main.async {
+                              self.currentAdamsZone = Int(data.adamsZoneIndex)
+                              self.currentSpotEV100 = data.spotEV100
+                              self.currentSpotDensityRGB = SIMD3<Float>(data.filmDensityRGB.0, data.filmDensityRGB.1, data.filmDensityRGB.2)
+                          }
+                      }
+                  }
+          
+                  commandBuffer.present(drawable)
+                  commandBuffer.commit()
+              }
+          
+              func buildCurrentRecipe() -> DarkroomNegativeRecipe {
+                  let lensMM = cameraPipeline?.activeLens.focalLengthMM ?? 26.0
+                  return DarkroomNegativeRecipe(
+                      lensFocalLengthMM: lensMM,
+                      simulatedApertureFNumber: simulatedApertureFNumber,
+                      shutterSpeedSeconds: shutterSpeedSeconds,
+                      filmStockID: selectedFilm.id,
+                      ratedEI: ratedEI,
+                      developerTemperatureC: developerTemperatureC,
+                      developmentTimeScale: developmentTimeScale,
+                      agitationFactor: agitationFactor,
+                      enlargerHeadTypeRaw: enlargerHeadType.rawValue,
+                      enlargerExposureEV: enlargerExposureTimeEV,
+                      filterYellowCC: filterYellowCC,
+                      filterMagentaCC: filterMagentaCC,
+                      filterCyanCC: filterCyanCC,
+                      multigradeFilterNumber: multigradeFilterNumber,
+                      enableSplitGrade: enableSplitGrade,
+                      splitGradeSoftBalance: splitGradeSoftBalance,
+                      paperID: selectedPaper.id,
+                      chemicalTonerRaw: chemicalToner.rawValue,
+                      tonerIntensity: tonerIntensity,
+                      dodgeBurnCenterX: dodgeBurnCenterUV.x,
+                      dodgeBurnCenterY: dodgeBurnCenterUV.y,
+                      dodgeBurnRadius: dodgeBurnRadius,
+                      dodgeBurnStops: dodgeBurnStops
+                  )
+              }
+          
+              func snapshotCurrentPrintUIImage() -> UIImage? {
+                  guard let tex = latestDrawableTexture,
+                        let ciImg = CIImage(mtlTexture: tex, options: [.colorSpace: CGColorSpace(name: CGColorSpace.displayP3)!]) else {
+                      return nil
+                  }
+                  let oriented = ciImg.transformed(by: CGAffineTransform(scaleX: 1, y: -1).translatedBy(x: 0, y: -ciImg.extent.height))
+                  guard let cgImg = ciContext.createCGImage(oriented, from: oriented.extent) else { return nil }
+                  return UIImage(cgImage: cgImg)
+              }
+          }
+          EOF_HALIDE_FILE
+
+          cat << 'EOF_HALIDE_FILE' > "HalideLabPro/Camera/CameraCapturePipeline.swift"
+          import Foundation
+          import AVFoundation
+          import CoreVideo
+          import CoreMedia
+          import Metal
+          import Photos
+          import UIKit
+          
+          /// Hardware optical module descriptors tailored to iPhone 13 Pro Max (A15 Bionic)
+          enum iPhone13ProMaxLens: String, CaseIterable, Identifiable {
+              case ultraWide13mm = "13mm f/1.8 Ultra Wide"
+              case wide26mm      = "26mm f/1.5 Primary Wide"
+              case telephoto77mm = "77mm f/2.8 3x Telephoto"
+          
+              var id: String { rawValue }
+          
+              var focalLengthMM: Float {
+                  switch self {
+                  case .ultraWide13mm: return 13.0
+                  case .wide26mm:      return 26.0
+                  case .telephoto77mm: return 77.0
+                  }
+              }
+          
+              var nativeApertureFNumber: Float {
+                  switch self {
+                  case .ultraWide13mm: return 1.8
+                  case .wide26mm:      return 1.5
+                  case .telephoto77mm: return 2.8
+                  }
+              }
+          
+              var avDeviceType: AVCaptureDevice.DeviceType {
+                  switch self {
+                  case .ultraWide13mm: return .builtInUltraWideCamera
+                  case .wide26mm:      return .builtInWideAngleCamera
+                  case .telephoto77mm: return .builtInTelephotoCamera
+                  }
+              }
+          }
+          
+          /// Manages zero-copy CVMetalTextureCache video/LiDAR streaming and 12-bit Pure Bayer RAW / Apple ProRAW capture.
+          final class CameraCapturePipeline: NSObject, ObservableObject {
+              @Published var activeLens: iPhone13ProMaxLens = .wide26mm
+              @Published var usePureBayerRAWOverProRAW: Bool = true
+              @Published var isSessionRunning: Bool = false
+              @Published var statusMessage: String = "Initializing A15 Bionic ISP & Sensor-Shift OIS..."
+              @Published var capturedRollsCount: Int = 0
+              @Published var latestCapturedPreviewImage: UIImage?
+          
+              let captureSession = AVCaptureSession()
+              private let sessionQueue = DispatchQueue(label: "com.halidelab.pro.camera.session", qos: .userInteractive)
+              private let dataOutputQueue = DispatchQueue(label: "com.halidelab.pro.camera.data", qos: .userInteractive)
+          
+              private var videoDeviceInput: AVCaptureDeviceInput?
+              private let videoDataOutput = AVCaptureVideoDataOutput()
+              private let depthDataOutput = AVCaptureDepthDataOutput()
+              private let photoOutput = AVCapturePhotoOutput()
+              private var outputSynchronizer: AVCaptureDataOutputSynchronizer?
+          
+              private var metalDevice: MTLDevice?
+              private var textureCache: CVMetalTextureCache?
+          
+              // Latest zero-copy Metal textures from camera & LiDAR
+              private let textureLock = NSLock()
+              private var _latestCameraTexture: MTLTexture?
+              private var _latestDepthTexture: MTLTexture?
+          
+              var latestTextures: (camera: MTLTexture?, depth: MTLTexture?) {
+                  textureLock.lock()
+                  defer { textureLock.unlock() }
+                  return (_latestCameraTexture, _latestDepthTexture)
+              }
+          
+              // Active retention of in-flight photo capture delegates
+              private var inFlightPhotoDelegates: [Int64: RAWPhotoCaptureProcessor] = [:]
+          
+              func bindMetalDevice(_ device: MTLDevice) {
+                  self.metalDevice = device
+                  var cache: CVMetalTextureCache?
+                  CVMetalTextureCacheCreate(kCFAllocatorDefault, nil, device, nil, &cache)
+                  self.textureCache = cache
+              }
+          
+              func requestPermissionsAndStart() {
+                  switch AVCaptureDevice.authorizationStatus(for: .video) {
+                  case .authorized:
+                      sessionQueue.async { self.configureSession(for: self.activeLens) }
+                  case .notDetermined:
+                      AVCaptureDevice.requestAccess(for: .video) { granted in
+                          if granted {
+                              self.sessionQueue.async { self.configureSession(for: self.activeLens) }
+                          } else {
+                              DispatchQueue.main.async {
+                                  self.statusMessage = "Camera Permission Denied — Running Synthetic Optical Test Chart"
+                              }
+                          }
+                      }
+                  default:
+                      DispatchQueue.main.async {
+                          self.statusMessage = "Camera Unavailable — Running Synthetic Optical Test Chart"
+                      }
+                  }
+              }
+          
+              func switchOpticalLens(_ newLens: iPhone13ProMaxLens) {
+                  guard newLens != activeLens else { return }
+                  DispatchQueue.main.async { self.activeLens = newLens }
+                  MechanicalHapticsAndMotion.shared.playApertureDetentClick(intensity: 0.90, sharpness: 0.95)
+                  sessionQueue.async {
+                      self.configureSession(for: newLens)
+                  }
+              }
+          
+              func setManualExposureAndFocus(iso: Float, shutterSeconds: Float, focusDistanceMeters: Float) {
+                  sessionQueue.async {
+                      guard let device = self.videoDeviceInput?.device else { return }
+                      do {
+                          try device.lockForConfiguration()
+                          if device.isExposureModeSupported(.custom) {
+                              let minISO = device.activeFormat.minISO
+                              let maxISO = device.activeFormat.maxISO
+                              let clampedISO = min(max(iso, minISO), maxISO)
+          
+                              let minDur = CMTimeGetSeconds(device.activeFormat.minExposureDuration)
+                              let maxDur = CMTimeGetSeconds(device.activeFormat.maxExposureDuration)
+                              let clampedSec = min(max(Double(shutterSeconds), minDur), maxDur)
+                              let duration = CMTimeMakeWithSeconds(clampedSec, preferredTimescale: 1_000_000)
+          
+                              device.setExposureModeCustom(duration: duration, iso: clampedISO, completionHandler: nil)
+                          }
+                          if device.isFocusModeSupported(.locked) {
+                              // Map physical distance (0.02m .. 10.0m) to normalized helicoid lensPosition (0.0 .. 1.0)
+                              let normPos = Float(1.0 - (1.0 / (1.0 + max(0.02, focusDistanceMeters) * 1.8)))
+                              device.setFocusModeLocked(lensPosition: min(max(normPos, 0.0), 1.0), completionHandler: nil)
+                          }
+                          device.unlockForConfiguration()
+                      } catch {
+                          print("Manual exposure/focus lock error: \(error.localizedDescription)")
+                      }
+                  }
+              }
+          
+              private func configureSession(for lens: iPhone13ProMaxLens) {
+                  captureSession.beginConfiguration()
+                  captureSession.sessionPreset = .photo
+          
+                  if let existingInput = videoDeviceInput {
+                      captureSession.removeInput(existingInput)
+                      videoDeviceInput = nil
+                  }
+          
+                  guard let cameraDevice = AVCaptureDevice.default(lens.avDeviceType, for: .video, position: .back)
+                      ?? AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
+                      captureSession.commitConfiguration()
+                      DispatchQueue.main.async {
+                          self.statusMessage = "Simulator/No Sensor Detected — Real-time Synthetic Optical Scene Active"
+                      }
+                      return
+                  }
+          
+                  do {
+                      let input = try AVCaptureDeviceInput(device: cameraDevice)
+                      if captureSession.canAddInput(input) {
+                          captureSession.addInput(input)
+                          videoDeviceInput = input
+                      }
+                  } catch {
+                      captureSession.commitConfiguration()
+                      return
+                  }
+          
+                  // Video Data Output (BGRA8Unorm mapped via zero-copy CVMetalTextureCache)
+                  if !captureSession.outputs.contains(videoDataOutput) {
+                      videoDataOutput.videoSettings = [
+                          kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA),
+                          kCVPixelBufferMetalCompatibilityKey as String: true
+                      ]
+                      videoDataOutput.alwaysDiscardsLateVideoFrames = true
+                      if captureSession.canAddOutput(videoDataOutput) {
+                          captureSession.addOutput(videoDataOutput)
+                      }
+                  }
+          
+                  // Photo Output for 12-bit Pure Bayer RAW (`kCVPixelFormatType_14Bayer_RGGB`) & Apple ProRAW
+                  if !captureSession.outputs.contains(photoOutput) {
+                      if captureSession.canAddOutput(photoOutput) {
+                          captureSession.addOutput(photoOutput)
+                          photoOutput.isHighResolutionCaptureEnabled = true
+                          if #available(iOS 16.0, *) {
+                              photoOutput.maxPhotoDimensions = CMVideoDimensions(width: 4032, height: 3024)
+                          }
+                          if photoOutput.isAppleProRAWSupported {
+                              photoOutput.isAppleProRAWEnabled = !usePureBayerRAWOverProRAW
+                          }
+                          if photoOutput.isDepthDataDeliverySupported {
+                              photoOutput.isDepthDataDeliveryEnabled = true
+                          }
+                      }
+                  }
+          
+                  // LiDAR / Dual-Pixel Depth Output
+                  if !captureSession.outputs.contains(depthDataOutput) {
+                      depthDataOutput.isFilteringEnabled = true
+                      if captureSession.canAddOutput(depthDataOutput) {
+                          captureSession.addOutput(depthDataOutput)
+                      }
+                  }
+          
+                  if let connection = videoDataOutput.connection(with: .video), connection.isVideoOrientationSupported {
+                      connection.videoOrientation = .portrait
+                  }
+          
+                  if captureSession.outputs.contains(depthDataOutput) && !cameraDevice.activeFormat.supportedDepthDataFormats.isEmpty {
+                      outputSynchronizer = AVCaptureDataOutputSynchronizer(dataOutputs: [videoDataOutput, depthDataOutput])
+                      outputSynchronizer?.setDelegate(self, queue: dataOutputQueue)
+                  } else {
+                      videoDataOutput.setSampleBufferDelegate(self, queue: dataOutputQueue)
+                  }
+          
+                  captureSession.commitConfiguration()
+          
+                  if !captureSession.isRunning {
+                      captureSession.startRunning()
+                  }
+          
+                  let rawCount = photoOutput.availableRawPhotoPixelFormatTypes.count
+                  DispatchQueue.main.async {
+                      self.isSessionRunning = self.captureSession.isRunning
+                      self.statusMessage = "\(lens.rawValue) • 12-bit RAW Formats: \(rawCount) • Zero-Copy Metal Active"
+                  }
+              }
+          
+              /// Triggers a 12-bit Pure Bayer RAW (or ProRAW) capture + renders the full-precision darkroom print
+              func capture12BitRAWAndDevelopPrint(
+                  recipe: DarkroomNegativeRecipe,
+                  renderedPrintSnapshot: UIImage?
+              ) {
+                  MechanicalHapticsAndMotion.shared.playMechanicalShutterRelease(shutterDurationSeconds: Double(recipe.shutterSpeedSeconds))
+          
+                  // Always archive the rendered print & sidecar recipe immediately for instant darkroom review
+                  if let printImg = renderedPrintSnapshot {
+                      DispatchQueue.main.async {
+                          self.latestCapturedPreviewImage = printImg
+                          self.capturedRollsCount += 1
+                      }
+                      saveDevelopedPrintAndRecipeToPhotoLibrary(dngData: nil, printImage: printImg, recipe: recipe)
+                  }
+          
+                  sessionQueue.async {
+                      guard self.captureSession.isRunning else { return }
+                      self.photoOutput.isAppleProRAWEnabled = self.photoOutput.isAppleProRAWSupported && !self.usePureBayerRAWOverProRAW
+          
+                      let availableRAW = self.photoOutput.availableRawPhotoPixelFormatTypes
+                      let photoSettings: AVCapturePhotoSettings
+          
+                      if let selectedRAWFormat = availableRAW.first(where: {
+                          self.usePureBayerRAWOverProRAW ? !AVCapturePhotoOutput.isAppleProRAWPixelFormat($0) : AVCapturePhotoOutput.isAppleProRAWPixelFormat($0)
+                      }) ?? availableRAW.first {
+                          photoSettings = AVCapturePhotoSettings(
+                              rawPixelFormatType: selectedRAWFormat,
+                              processedFormat: [AVVideoCodecKey: AVVideoCodecType.hevc]
+                          )
+                      } else {
+                          photoSettings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.hevc])
+                      }
+          
+                      // Disable ISP multi-frame smoothing to preserve authentic photon shot statistics
+                      photoSettings.isAutoStillImageStabilizationEnabled = false
+                      photoSettings.photoQualityPrioritization = .quality
+          
+                      let processor = RAWPhotoCaptureProcessor(uid: photoSettings.uniqueID) { [weak self] dngData in
+                          guard let self = self else { return }
+                          self.inFlightPhotoDelegates.removeValue(forKey: photoSettings.uniqueID)
+                          if let dng = dngData {
+                              self.saveDNGNegativeToDocuments(dngData: dng, recipe: recipe)
+                          }
+                      }
+                      self.inFlightPhotoDelegates[photoSettings.uniqueID] = processor
+                      self.photoOutput.capturePhoto(with: photoSettings, delegate: processor)
+                  }
+              }
+          
+              private func saveDNGNegativeToDocuments(dngData: Data, recipe: DarkroomNegativeRecipe) {
+                  let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+                  let baseName = "Negative_\(Int(recipe.captureTimestamp.timeIntervalSince1970))"
+                  let dngURL = docs.appendingPathComponent("\(baseName).dng")
+                  let sidecarURL = docs.appendingPathComponent("\(baseName).json")
+                  try? dngData.write(to: dngURL, options: .atomic)
+                  if let jsonData = try? JSONEncoder().encode(recipe) {
+                      try? jsonData.write(to: sidecarURL, options: .atomic)
+                  }
+              }
+          
+              private func saveDevelopedPrintAndRecipeToPhotoLibrary(dngData: Data?, printImage: UIImage, recipe: DarkroomNegativeRecipe) {
+                  // Also persist the non-destructive JSON sidecar recipe to Documents
+                  let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+                  let sidecarURL = docs.appendingPathComponent("Recipe_\(recipe.id.uuidString).json")
+                  if let jsonData = try? JSONEncoder().encode(recipe) {
+                      try? jsonData.write(to: sidecarURL, options: .atomic)
+                  }
+          
+                  PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+                      guard status == .authorized || status == .limited else { return }
+                      PHPhotoLibrary.shared().performChanges({
+                          let creationRequest = PHAssetCreationRequest.forAsset()
+                          if let pngData = printImage.pngData() {
+                              creationRequest.addResource(with: .photo, data: pngData, options: nil)
+                          }
+                          if let rawDNG = dngData {
+                              let rawOptions = PHAssetResourceCreationOptions()
+                              rawOptions.originalFilename = "HalideLab_12Bit.dng"
+                              creationRequest.addResource(with: .alternatePhoto, data: rawDNG, options: rawOptions)
+                          }
+                      }, completionHandler: nil)
+                  }
+              }
+          }
+          
+          extension CameraCapturePipeline: AVCaptureVideoDataOutputSampleBufferDelegate, AVCaptureDataOutputSynchronizerDelegate {
+              func dataOutputSynchronizer(
+                  _ synchronizer: AVCaptureDataOutputSynchronizer,
+                  didOutput synchronizedDataCollection: AVCaptureSynchronizedDataCollection
+              ) {
+                  if let syncedVideo = synchronizedDataCollection.synchronizedData(for: videoDataOutput) as? AVCaptureSynchronizedSampleBufferData,
+                     !syncedVideo.sampleBufferWasDropped,
+                     let pixelBuffer = CMSampleBufferGetImageBuffer(syncedVideo.sampleBuffer) {
+                      updateCameraMetalTexture(from: pixelBuffer)
+                  }
+          
+                  if let syncedDepth = synchronizedDataCollection.synchronizedData(for: depthDataOutput) as? AVCaptureSynchronizedDepthData,
+                     !syncedDepth.depthDataWasDropped {
+                      let convertedDepth = syncedDepth.depthData.converting(toDepthDataType: kCVPixelFormatType_DepthFloat32)
+                      updateDepthMetalTexture(from: convertedDepth.depthDataMap)
+                  }
+              }
+          
+              func captureOutput(
+                  _ output: AVCaptureOutput,
+                  didOutput sampleBuffer: CMSampleBuffer,
+                  from connection: AVCaptureConnection
+              ) {
+                  guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+                  updateCameraMetalTexture(from: pixelBuffer)
+              }
+          
+              private func updateCameraMetalTexture(from pixelBuffer: CVPixelBuffer) {
+                  guard let cache = textureCache else { return }
+                  let width = CVPixelBufferGetWidth(pixelBuffer)
+                  let height = CVPixelBufferGetHeight(pixelBuffer)
+                  var cvTexOut: CVMetalTexture?
+                  let status = CVMetalTextureCacheCreateTextureFromImage(
+                      kCFAllocatorDefault,
+                      cache,
+                      pixelBuffer,
+                      nil,
+                      .bgra8Unorm,
+                      width,
+                      height,
+                      0,
+                      &cvTexOut
+                  )
+                  if status == kCVReturnSuccess, let cvTex = cvTexOut, let mtlTex = CVMetalTextureGetTexture(cvTex) {
+                      textureLock.lock()
+                      _latestCameraTexture = mtlTex
+                      textureLock.unlock()
+                  }
+              }
+          
+              private func updateDepthMetalTexture(from depthBuffer: CVPixelBuffer) {
+                  guard let cache = textureCache else { return }
+                  let width = CVPixelBufferGetWidth(depthBuffer)
+                  let height = CVPixelBufferGetHeight(depthBuffer)
+                  var cvTexOut: CVMetalTexture?
+                  let status = CVMetalTextureCacheCreateTextureFromImage(
+                      kCFAllocatorDefault,
+                      cache,
+                      depthBuffer,
+                      nil,
+                      .r32Float,
+                      width,
+                      height,
+                      0,
+                      &cvTexOut
+                  )
+                  if status == kCVReturnSuccess, let cvTex = cvTexOut, let mtlTex = CVMetalTextureGetTexture(cvTex) {
+                      textureLock.lock()
+                      _latestDepthTexture = mtlTex
+                      textureLock.unlock()
+                  }
+              }
+          }
+          
+          private final class RAWPhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
+              let uid: Int64
+              private let completion: (Data?) -> Void
+              private var capturedDNGData: Data?
+          
+              init(uid: Int64, completion: @escaping (Data?) -> Void) {
+                  self.uid = uid
+                  self.completion = completion
+              }
+          
+              func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
+                  if photo.isRawPhoto {
+                      capturedDNGData = photo.fileDataRepresentation()
+                  }
+              }
+          
+              func photoOutput(_ output: AVCapturePhotoOutput, didFinishCaptureFor resolvedSettings: AVCaptureResolvedPhotoSettings, error: Error?) {
+                  completion(capturedDNGData)
+              }
+          }
+          EOF_HALIDE_FILE
+
+          echo "=== Source Tree Synthesized Successfully ==="
+          find HalideLabPro project.yml -maxdepth 4
+
+      - name: Select Latest Stable Xcode Toolchain on Runner
+        run: |
+          ls -d /Applications/Xcode*.app
+          if [ -d "/Applications/Xcode.app" ]; then
+            sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          fi
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Install XcodeGen & Generate HalideLabPro.xcodeproj
+        run: |
+          if ! command -v xcodegen &> /dev/null; then
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install xcodegen
+          fi
+          xcodegen generate --spec project.yml
+          ls -la "${PROJECT_NAME}.xcodeproj"
+
+      - name: Pre-Compile & Verify A15 Bionic Metal Compute Shaders (.metal -> .metallib)
+        run: |
+          xcrun -sdk iphoneos metal -c \
+            -std=ios-metal2.4 \
+            -I HalideLabPro/Bridge \
+            HalideLabPro/Shaders/AnalogPipelineShaders.metal \
+            -o "${RUNNER_TEMP}/AnalogPipelineShaders.air"
+          xcrun -sdk iphoneos metallib \
+            "${RUNNER_TEMP}/AnalogPipelineShaders.air" \
+            -o "${RUNNER_TEMP}/default.metallib"
+          ls -lh "${RUNNER_TEMP}/default.metallib"
+
+      - name: Compile iOS App Bundle (arm64 / iPhone 13 Pro Max)
+        run: |
+          set -o pipefail
+          xcodebuild clean build \
+            -project "${PROJECT_NAME}.xcodeproj" \
+            -scheme "${SCHEME_NAME}" \
+            -configuration "${CONFIGURATION}" \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -derivedDataPath "${DERIVED_DATA_PATH}" \
+            ARCHS="arm64" \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES \
+            COMPILER_INDEX_STORE_ENABLE=NO | tee build.log
+
+      - name: Ad-Hoc Sign & Package Installable .ipa
+        run: |
+          APP_PATH="${DERIVED_DATA_PATH}/Build/Products/${CONFIGURATION}-iphoneos/${PROJECT_NAME}.app"
+          codesign --force --deep --sign - --timestamp=none "${APP_PATH}"
+          mkdir -p "${RUNNER_TEMP}/ipa_stage/Payload"
+          cp -R "${APP_PATH}" "${RUNNER_TEMP}/ipa_stage/Payload/"
+          cd "${RUNNER_TEMP}/ipa_stage"
+          zip -qry "${GITHUB_WORKSPACE}/${PROJECT_NAME}-${CONFIGURATION}.ipa" Payload
+          ls -lh "${GITHUB_WORKSPACE}/${PROJECT_NAME}-${CONFIGURATION}.ipa"
+
+      - name: Upload Build Artifact (GitHub Actions Artifacts)
+        uses: actions/upload-artifact@v4
+        with:
+          name: HalideLabPro-${{ env.CONFIGURATION }}-IPA
+          path: ${{ github.workspace }}/${{ env.PROJECT_NAME }}-${{ env.CONFIGURATION }}.ipa
+          compression-level: 0
+          retention-days: 30
+
+      - name: Publish Direct-Download .ipa to GitHub Releases (No-Unzip Direct Install Link)
+        if: ${{ inputs.create_github_release != false }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG_NAME="v1.0.${GITHUB_RUN_NUMBER}"
+          RELEASE_TITLE="HalideLab Pro iPhone 13 Pro Max Build #${GITHUB_RUN_NUMBER} (${CONFIGURATION})"
+          IPA_FILE="${GITHUB_WORKSPACE}/${PROJECT_NAME}-${CONFIGURATION}.ipa"
+
+          gh release create "${TAG_NAME}" "${IPA_FILE}#HalideLabPro-${CONFIGURATION}.ipa" \
+            --title "${RELEASE_TITLE}" \
+            --notes "Direct-download unsigned/ad-hoc signed \`.ipa\` for iPhone 13 Pro Max. Download \`HalideLabPro-${CONFIGURATION}.ipa\` directly below without unzipping, and install via AltStore, SideStore, TrollStore, or Sideloadly." \
+            --latest
