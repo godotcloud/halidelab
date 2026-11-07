@@ -2808,7 +2808,7 @@ jobs:
           enum FilmFormatGate: String, CaseIterable, Identifiable {
               case format135   = "135 (35mm Full Frame)"
               case format120   = "120 (6x7 Medium Format)"
-              case format4x5   = "4x5" (Large Format Sheet)"
+              case format4x5   = "4x5 (Large Format Sheet)"
               case formatHalf  = "135 Half-Frame (18x24mm)"
           
               var id: String { rawValue }
