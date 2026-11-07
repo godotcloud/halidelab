@@ -180,442 +180,18 @@ jobs:
                 - sdk: UniformTypeIdentifiers.framework
           EOF_HALIDE_FILE
 
-          cat << 'EOF_HALIDE_FILE' > "HalideLabPro/Resources/Assets.xcassets/Contents.json"
-          {
-            "info" : {
-              "author" : "xcode",
-              "version" : 1
-            }
-          }
-          EOF_HALIDE_FILE
-
-          cat << 'EOF_HALIDE_FILE' > "HalideLabPro/Resources/Assets.xcassets/AppIcon.appiconset/Contents.json"
-          {
-            "images" : [
-              {
-                "idiom" : "universal",
-                "platform" : "ios",
-                "size" : "1024x1024"
+          cat << 'EOF_HALIDE_FILE' > "HalideLabPro/App/HalideLabProApp.swift"
+          import SwiftUI
+          
+          @main
+          struct HalideLabProApp: App {
+              var body: some Scene {
+                  WindowGroup {
+                      MechanicalCameraView()
+                          .preferredColorScheme(.dark)
+                          .statusBar(hidden: true)
+                  }
               }
-            ],
-            "info" : {
-              "author" : "xcode",
-              "version" : 1
-            }
-          }
-          EOF_HALIDE_FILE
-
-          cat << 'EOF_HALIDE_FILE' > "HalideLabPro/Models/FilmStockDatabase.swift"
-          import Foundation
-          import simd
-          
-          /// Represents an authentic real-world film emulsion digitized from manufacturer technical data sheets.
-          struct FilmStockDescriptor: Identifiable, Hashable {
-              let id: String
-              let displayName: String
-              let manufacturer: String
-              let codeName: String
-              let datasheetReference: String
-              let processType: FilmProcessType
-              let grainMorphology: GrainMorphologyType
-              let nominalISO: Float
-              let nativeWhiteBalanceK: Int
-              let defaultDeveloperName: String
-              let defaultDeveloperTempC: Float
-              
-              // H-D Curve Parameters (Red/Cyan, Green/Magenta, Blue/Yellow)
-              let dMinRGB: SIMD3<Float>
-              let dMaxRGB: SIMD3<Float>
-              let gammaRGB: SIMD3<Float>
-              let logH0RGB: SIMD3<Float>
-              let toeCurvatureRGB: SIMD3<Float>
-              let shoulderCurvatureRGB: SIMD3<Float>
-              
-              // Schwarzschild Reciprocity Failure Exponent p (H_eff = E * t^p)
-              let reciprocityExponentRGB: SIMD3<Float>
-              
-              // Spectral Sensitivity Cross-Talk & DIR Couplers Inter-Image Matrix
-              let spectralRow0: SIMD3<Float>
-              let spectralRow1: SIMD3<Float>
-              let spectralRow2: SIMD3<Float>
-              let dirCouplerRow0: SIMD3<Float>
-              let dirCouplerRow1: SIMD3<Float>
-              let dirCouplerRow2: SIMD3<Float>
-              
-              // Halation & Microstructure
-              let halationReflectance: Float
-              let halationGreenLeak: Float
-              let halationThreshold: Float
-              let halationRadiusPixels: Float
-              let diffuseRMSGranularity: Float // Official Diffuse RMS Granularity (sigma_D * 1000 at D=1.0, 48um aperture)
-              let eberhardEdgeBoost: Float
-              let mtf50CyclesPerMM: Float
-          
-              func buildUniforms(
-                  ratedEI: Float,
-                  shutterSeconds: Float,
-                  devTempC: Float,
-                  devTimeScale: Float,
-                  agitation: Float,
-                  frameSeed: UInt32
-              ) -> FilmEmulsionUniforms {
-                  var u = FilmEmulsionUniforms()
-                  u.processType = processType.rawValue
-                  u.grainMorphology = grainMorphology.rawValue
-                  u.isoNominal = nominalISO
-                  u.exposureIndexRated = ratedEI
-                  u.exposureTimeSeconds = shutterSeconds
-                  u.reciprocityExponentRGB = (reciprocityExponentRGB.x, reciprocityExponentRGB.y, reciprocityExponentRGB.z)
-                  u.dMinRGB = (dMinRGB.x, dMinRGB.y, dMinRGB.z)
-                  u.dMaxRGB = (dMaxRGB.x, dMaxRGB.y, dMaxRGB.z)
-                  u.gammaRGB = (gammaRGB.x, gammaRGB.y, gammaRGB.z)
-                  u.logH0RGB = (logH0RGB.x, logH0RGB.y, logH0RGB.z)
-                  u.toeCurvatureRGB = (toeCurvatureRGB.x, toeCurvatureRGB.y, toeCurvatureRGB.z)
-                  u.shoulderCurvatureRGB = (shoulderCurvatureRGB.x, shoulderCurvatureRGB.y, shoulderCurvatureRGB.z)
-                  u.spectralMatrix = simd_float3x3(columns: (spectralRow0, spectralRow1, spectralRow2)).transpose
-                  u.dirCouplerMatrix = simd_float3x3(columns: (dirCouplerRow0, dirCouplerRow1, dirCouplerRow2)).transpose
-                  u.halationReflectance = halationReflectance
-                  u.halationGreenLeak = halationGreenLeak
-                  u.halationThreshold = halationThreshold
-                  u.halationRadiusPixels = halationRadiusPixels
-                  u.diffuseRMSGranularity = diffuseRMSGranularity
-                  u.eberhardEdgeBoost = eberhardEdgeBoost
-                  u.mtf50CyclesPerMM = mtf50CyclesPerMM
-                  u.developerTemperatureC = devTempC
-                  u.developmentTimeScale = devTimeScale
-                  u.agitationFactor = agitation
-                  u.frameRandomSeed = frameSeed
-                  return u
-              }
-          }
-          
-          /// Represents an authentic darkroom photographic paper from Kodak & Ilford technical publications.
-          struct DarkroomPaperDescriptor: Identifiable, Hashable {
-              let id: String
-              let displayName: String
-              let datasheetReference: String
-              let isMonochromeMultigrade: Bool
-              let dMinRGB: SIMD3<Float>
-              let dMaxRGB: SIMD3<Float>
-              let intrinsicGamma: Float
-          }
-          
-          /// Authoritative Database of 7 Classic Film Stocks & 3 Darkroom Papers
-          enum FilmStockDatabase {
-              static let allFilms: [FilmStockDescriptor] = [
-                  // 1. Kodak Professional Portra 400 (Publication E-4050)
-                  FilmStockDescriptor(
-                      id: "kodak_portra_400",
-                      displayName: "Kodak Portra 400",
-                      manufacturer: "Kodak Alaris",
-                      codeName: "400VC / E-4050",
-                      datasheetReference: "Kodak Tech Pub E-4050 (Status M Densitometry)",
-                      processType: .c41ColorNegative,
-                      grainMorphology: .tabular,
-                      nominalISO: 400.0,
-                      nativeWhiteBalanceK: 5500,
-                      defaultDeveloperName: "Kodak Flexicolor C-41",
-                      defaultDeveloperTempC: 37.8,
-                      dMinRGB: SIMD3<Float>(0.22, 0.58, 0.88), // Authentic C-41 Orange Mask Base + Fog
-                      dMaxRGB: SIMD3<Float>(2.45, 2.82, 3.10),
-                      gammaRGB: SIMD3<Float>(0.62, 0.64, 0.66),
-                      logH0RGB: SIMD3<Float>(-0.78, -0.76, -0.74),
-                      toeCurvatureRGB: SIMD3<Float>(0.58, 0.56, 0.55),
-                      shoulderCurvatureRGB: SIMD3<Float>(0.82, 0.80, 0.78), // Ultra-wide +4 EV highlight latitude
-                      reciprocityExponentRGB: SIMD3<Float>(0.87, 0.88, 0.85),
-                      spectralRow0: SIMD3<Float>(0.94, 0.05, 0.01),
-                      spectralRow1: SIMD3<Float>(0.04, 0.92, 0.04),
-                      spectralRow2: SIMD3<Float>(0.01, 0.06, 0.93),
-                      dirCouplerRow0: SIMD3<Float>(1.14, -0.09, -0.05),
-                      dirCouplerRow1: SIMD3<Float>(-0.07, 1.15, -0.08),
-                      dirCouplerRow2: SIMD3<Float>(-0.04, -0.08, 1.12),
-                      halationReflectance: 0.045,
-                      halationGreenLeak: 0.18,
-                      halationThreshold: 1.15,
-                      halationRadiusPixels: 4.5,
-                      diffuseRMSGranularity: 11.0, // Official RMS = 11
-                      eberhardEdgeBoost: 0.14,
-                      mtf50CyclesPerMM: 65.0
-                  ),
-                  
-                  // 2. Kodak Professional Tri-X 400 (Publication F-4017)
-                  FilmStockDescriptor(
-                      id: "kodak_trix_400",
-                      displayName: "Kodak Tri-X 400",
-                      manufacturer: "Eastman Kodak",
-                      codeName: "400TX / F-4017",
-                      datasheetReference: "Kodak Tech Pub F-4017 (D-76 1:1 @ 20°C)",
-                      processType: .bwMonochromeNegative,
-                      grainMorphology: .cubic,
-                      nominalISO: 400.0,
-                      nativeWhiteBalanceK: 5500,
-                      defaultDeveloperName: "Kodak D-76 (1+1) / HC-110B",
-                      defaultDeveloperTempC: 20.0,
-                      dMinRGB: SIMD3<Float>(0.28, 0.28, 0.28),
-                      dMaxRGB: SIMD3<Float>(2.38, 2.38, 2.38),
-                      gammaRGB: SIMD3<Float>(0.65, 0.65, 0.65),
-                      logH0RGB: SIMD3<Float>(-0.74, -0.74, -0.74),
-                      toeCurvatureRGB: SIMD3<Float>(0.45, 0.45, 0.45), // Classic gritty shadow toe drop
-                      shoulderCurvatureRGB: SIMD3<Float>(0.72, 0.72, 0.72),
-                      reciprocityExponentRGB: SIMD3<Float>(0.80, 0.80, 0.80),
-                      spectralRow0: SIMD3<Float>(0.34, 0.54, 0.12), // Panchromatic spectral sensitivity
-                      spectralRow1: SIMD3<Float>(0.34, 0.54, 0.12),
-                      spectralRow2: SIMD3<Float>(0.34, 0.54, 0.12),
-                      dirCouplerRow0: SIMD3<Float>(1.00, 0.00, 0.00),
-                      dirCouplerRow1: SIMD3<Float>(0.00, 1.00, 0.00),
-                      dirCouplerRow2: SIMD3<Float>(0.00, 0.00, 1.00),
-                      halationReflectance: 0.06,
-                      halationGreenLeak: 1.00,
-                      halationThreshold: 1.10,
-                      halationRadiusPixels: 5.0,
-                      diffuseRMSGranularity: 17.0, // Official RMS = 17 (Classic cubic grain)
-                      eberhardEdgeBoost: 0.24,
-                      mtf50CyclesPerMM: 55.0
-                  ),
-                  
-                  // 3. Kodak Professional T-Max 400 (Publication F-4043)
-                  FilmStockDescriptor(
-                      id: "kodak_tmax_400",
-                      displayName: "Kodak T-Max 400",
-                      manufacturer: "Eastman Kodak",
-                      codeName: "400TMY-2 / F-4043",
-                      datasheetReference: "Kodak Tech Pub F-4043 (T-Grain Emulsion)",
-                      processType: .bwMonochromeNegative,
-                      grainMorphology: .tabular,
-                      nominalISO: 400.0,
-                      nativeWhiteBalanceK: 5500,
-                      defaultDeveloperName: "Kodak T-Max Developer (1+4)",
-                      defaultDeveloperTempC: 20.0,
-                      dMinRGB: SIMD3<Float>(0.24, 0.24, 0.24),
-                      dMaxRGB: SIMD3<Float>(2.52, 2.52, 2.52),
-                      gammaRGB: SIMD3<Float>(0.62, 0.62, 0.62),
-                      logH0RGB: SIMD3<Float>(-0.76, -0.76, -0.76),
-                      toeCurvatureRGB: SIMD3<Float>(0.54, 0.54, 0.54),
-                      shoulderCurvatureRGB: SIMD3<Float>(0.84, 0.84, 0.84),
-                      reciprocityExponentRGB: SIMD3<Float>(0.88, 0.88, 0.88),
-                      spectralRow0: SIMD3<Float>(0.36, 0.52, 0.12),
-                      spectralRow1: SIMD3<Float>(0.36, 0.52, 0.12),
-                      spectralRow2: SIMD3<Float>(0.36, 0.52, 0.12),
-                      dirCouplerRow0: SIMD3<Float>(1.00, 0.00, 0.00),
-                      dirCouplerRow1: SIMD3<Float>(0.00, 1.00, 0.00),
-                      dirCouplerRow2: SIMD3<Float>(0.00, 0.00, 1.00),
-                      halationReflectance: 0.035,
-                      halationGreenLeak: 1.00,
-                      halationThreshold: 1.25,
-                      halationRadiusPixels: 3.5,
-                      diffuseRMSGranularity: 10.0, // Official RMS = 10 (World's sharpest 400-speed B&W)
-                      eberhardEdgeBoost: 0.28,
-                      mtf50CyclesPerMM: 75.0
-                  ),
-                  
-                  // 4. Ilford HP5 Plus 400 (Harman Technology Technical Information)
-                  FilmStockDescriptor(
-                      id: "ilford_hp5_plus",
-                      displayName: "Ilford HP5 Plus",
-                      manufacturer: "Harman / Ilford Photo",
-                      codeName: "HP5+ 400/27°",
-                      datasheetReference: "Ilford HP5 Plus Technical Sheet (ID-11 / Microphen)",
-                      processType: .bwMonochromeNegative,
-                      grainMorphology: .cubic,
-                      nominalISO: 400.0,
-                      nativeWhiteBalanceK: 5500,
-                      defaultDeveloperName: "Ilford ID-11 / Microphen (Push)",
-                      defaultDeveloperTempC: 20.0,
-                      dMinRGB: SIMD3<Float>(0.26, 0.26, 0.26),
-                      dMaxRGB: SIMD3<Float>(2.32, 2.32, 2.32),
-                      gammaRGB: SIMD3<Float>(0.60, 0.60, 0.60),
-                      logH0RGB: SIMD3<Float>(-0.75, -0.75, -0.75),
-                      toeCurvatureRGB: SIMD3<Float>(0.52, 0.52, 0.52),
-                      shoulderCurvatureRGB: SIMD3<Float>(0.78, 0.78, 0.78),
-                      reciprocityExponentRGB: SIMD3<Float>(0.78, 0.78, 0.78),
-                      spectralRow0: SIMD3<Float>(0.32, 0.55, 0.13),
-                      spectralRow1: SIMD3<Float>(0.32, 0.55, 0.13),
-                      spectralRow2: SIMD3<Float>(0.32, 0.55, 0.13),
-                      dirCouplerRow0: SIMD3<Float>(1.00, 0.00, 0.00),
-                      dirCouplerRow1: SIMD3<Float>(0.00, 1.00, 0.00),
-                      dirCouplerRow2: SIMD3<Float>(0.00, 0.00, 1.00),
-                      halationReflectance: 0.075,
-                      halationGreenLeak: 1.00,
-                      halationThreshold: 1.05,
-                      halationRadiusPixels: 5.5,
-                      diffuseRMSGranularity: 16.0,
-                      eberhardEdgeBoost: 0.21,
-                      mtf50CyclesPerMM: 52.0
-                  ),
-                  
-                  // 5. Fujifilm Fujichrome Velvia 50 (RVP50 Data Guide)
-                  FilmStockDescriptor(
-                      id: "fujifilm_velvia_50",
-                      displayName: "Fujichrome Velvia 50",
-                      manufacturer: "Fujifilm Corp.",
-                      codeName: "RVP50 / ISO 50/18°",
-                      datasheetReference: "Fujifilm Professional Film Data Guide (RVP50 Status A)",
-                      processType: .e6ColorReversal,
-                      grainMorphology: .fineE6,
-                      nominalISO: 50.0,
-                      nativeWhiteBalanceK: 5500,
-                      defaultDeveloperName: "Fujichrome E-6 First & Color Dev",
-                      defaultDeveloperTempC: 38.0,
-                      dMinRGB: SIMD3<Float>(0.12, 0.13, 0.14),
-                      dMaxRGB: SIMD3<Float>(3.65, 3.72, 3.60), // Deep Dmax > 3.6 slide blacks
-                      gammaRGB: SIMD3<Float>(1.78, 1.82, 1.75), // High-contrast reversal S-curve
-                      logH0RGB: SIMD3<Float>(-0.72, -0.72, -0.72),
-                      toeCurvatureRGB: SIMD3<Float>(0.44, 0.44, 0.44),
-                      shoulderCurvatureRGB: SIMD3<Float>(0.46, 0.46, 0.46),
-                      reciprocityExponentRGB: SIMD3<Float>(0.76, 0.79, 0.74), // Requires correction past 4s
-                      spectralRow0: SIMD3<Float>(0.97, 0.02, 0.01),
-                      spectralRow1: SIMD3<Float>(0.02, 0.96, 0.02),
-                      spectralRow2: SIMD3<Float>(0.01, 0.03, 0.96),
-                      dirCouplerRow0: SIMD3<Float>(1.26, -0.15, -0.11), // High-purity dye couplers
-                      dirCouplerRow1: SIMD3<Float>(-0.12, 1.28, -0.16),
-                      dirCouplerRow2: SIMD3<Float>(-0.09, -0.15, 1.24),
-                      halationReflectance: 0.025,
-                      halationGreenLeak: 0.12,
-                      halationThreshold: 1.35,
-                      halationRadiusPixels: 3.0,
-                      diffuseRMSGranularity: 9.0, // Official RMS = 9
-                      eberhardEdgeBoost: 0.22,
-                      mtf50CyclesPerMM: 70.0
-                  ),
-                  
-                  // 6. Fujifilm Fujichrome Provia 100F (RDPIII Data Sheet)
-                  FilmStockDescriptor(
-                      id: "fujifilm_provia_100f",
-                      displayName: "Fujichrome Provia 100F",
-                      manufacturer: "Fujifilm Corp.",
-                      codeName: "RDPIII / ISO 100/21°",
-                      datasheetReference: "Fujifilm Datasheet RDPIII (RMS 8, Zero Reciprocity to 128s)",
-                      processType: .e6ColorReversal,
-                      grainMorphology: .fineE6,
-                      nominalISO: 100.0,
-                      nativeWhiteBalanceK: 5500,
-                      defaultDeveloperName: "Fujichrome E-6 Standard",
-                      defaultDeveloperTempC: 38.0,
-                      dMinRGB: SIMD3<Float>(0.11, 0.12, 0.13),
-                      dMaxRGB: SIMD3<Float>(3.55, 3.60, 3.50),
-                      gammaRGB: SIMD3<Float>(1.48, 1.50, 1.48),
-                      logH0RGB: SIMD3<Float>(-0.74, -0.74, -0.74),
-                      toeCurvatureRGB: SIMD3<Float>(0.55, 0.55, 0.55),
-                      shoulderCurvatureRGB: SIMD3<Float>(0.56, 0.56, 0.56),
-                      reciprocityExponentRGB: SIMD3<Float>(0.98, 0.98, 0.98), // Legendary reciprocity stability up to 128s
-                      spectralRow0: SIMD3<Float>(0.95, 0.03, 0.02),
-                      spectralRow1: SIMD3<Float>(0.03, 0.94, 0.03),
-                      spectralRow2: SIMD3<Float>(0.01, 0.04, 0.95),
-                      dirCouplerRow0: SIMD3<Float>(1.16, -0.09, -0.07),
-                      dirCouplerRow1: SIMD3<Float>(-0.08, 1.18, -0.10),
-                      dirCouplerRow2: SIMD3<Float>(-0.06, -0.09, 1.15),
-                      halationReflectance: 0.020,
-                      halationGreenLeak: 0.10,
-                      halationThreshold: 1.40,
-                      halationRadiusPixels: 2.8,
-                      diffuseRMSGranularity: 8.0, // Official RMS = 8 (Finest slide granularity)
-                      eberhardEdgeBoost: 0.18,
-                      mtf50CyclesPerMM: 72.0
-                  ),
-                  
-                  // 7. Kodak Vision3 500T (5219) / CineStill 800T Remjet-Free C-41 Cross-Process
-                  FilmStockDescriptor(
-                      id: "kodak_vision3_500t_cinestill_800t",
-                      displayName: "Vision3 500T / CineStill 800T",
-                      manufacturer: "Eastman Kodak / CineStill",
-                      codeName: "5219 / 800T Tungsten",
-                      datasheetReference: "Kodak H-1-5219 Tech Data (DLT + Sub-Micron + Remjet-Free Halation)",
-                      processType: .c41CrossRemjetFree,
-                      grainMorphology: .tabular,
-                      nominalISO: 800.0,
-                      nativeWhiteBalanceK: 3200, // Tungsten balanced
-                      defaultDeveloperName: "C-41 Cross-Process (Remjet Removed)",
-                      defaultDeveloperTempC: 37.8,
-                      dMinRGB: SIMD3<Float>(0.20, 0.55, 0.85),
-                      dMaxRGB: SIMD3<Float>(2.50, 2.85, 3.15),
-                      gammaRGB: SIMD3<Float>(0.60, 0.62, 0.64),
-                      logH0RGB: SIMD3<Float>(-0.80, -0.77, -0.71), // Extra blue sensitivity for 3200K tungsten balance
-                      toeCurvatureRGB: SIMD3<Float>(0.62, 0.60, 0.58), // Dye Layering Technology (DLT) clean shadows
-                      shoulderCurvatureRGB: SIMD3<Float>(0.88, 0.86, 0.85), // +2 stops Sub-Micron extended highlight latitude
-                      reciprocityExponentRGB: SIMD3<Float>(0.89, 0.90, 0.88),
-                      spectralRow0: SIMD3<Float>(0.88, 0.08, 0.04),
-                      spectralRow1: SIMD3<Float>(0.05, 0.90, 0.05),
-                      spectralRow2: SIMD3<Float>(0.02, 0.08, 1.08), // Boosted tungsten blue response
-                      dirCouplerRow0: SIMD3<Float>(1.18, -0.11, -0.07),
-                      dirCouplerRow1: SIMD3<Float>(-0.08, 1.19, -0.11),
-                      dirCouplerRow2: SIMD3<Float>(-0.05, -0.10, 1.15),
-                      halationReflectance: 0.38, // Characteristic crimson-orange corona from removed Remjet backing
-                      halationGreenLeak: 0.28,
-                      halationThreshold: 0.78,
-                      halationRadiusPixels: 8.5,
-                      diffuseRMSGranularity: 11.5,
-                      eberhardEdgeBoost: 0.16,
-                      mtf50CyclesPerMM: 68.0
-                  )
-              ]
-          
-              static let allPapers: [DarkroomPaperDescriptor] = [
-                  DarkroomPaperDescriptor(
-                      id: "kodak_endura_premier",
-                      displayName: "Kodak Endura Premier RA-4",
-                      datasheetReference: "Kodak Tech Pub E-4070 (Status A Reflection)",
-                      isMonochromeMultigrade: false,
-                      dMinRGB: SIMD3<Float>(0.04, 0.04, 0.05),
-                      dMaxRGB: SIMD3<Float>(2.22, 2.20, 2.18),
-                      intrinsicGamma: 1.00
-                  ),
-                  DarkroomPaperDescriptor(
-                      id: "kodak_ektacolor_edge",
-                      displayName: "Kodak Ektacolor Edge RA-4",
-                      datasheetReference: "Kodak Tech Pub E-7020 (High Chroma)",
-                      isMonochromeMultigrade: false,
-                      dMinRGB: SIMD3<Float>(0.03, 0.03, 0.04),
-                      dMaxRGB: SIMD3<Float>(2.28, 2.26, 2.24),
-                      intrinsicGamma: 1.12
-                  ),
-                  DarkroomPaperDescriptor(
-                      id: "ilford_multigrade_rc_deluxe",
-                      displayName: "Ilford Multigrade RC Deluxe (Grades 00–5)",
-                      datasheetReference: "Ilford Multigrade Technical Data C20",
-                      isMonochromeMultigrade: true,
-                      dMinRGB: SIMD3<Float>(0.04, 0.04, 0.045),
-                      dMaxRGB: SIMD3<Float>(2.15, 2.15, 2.15),
-                      intrinsicGamma: 1.00
-                  ),
-                  DarkroomPaperDescriptor(
-                      id: "ilford_multigrade_fb_warmtone",
-                      displayName: "Ilford Multigrade FB Warmtone (Fibre Base)",
-                      datasheetReference: "Ilford Fibre Base Warmtone Spec (Rich Silver Blacks)",
-                      isMonochromeMultigrade: true,
-                      dMinRGB: SIMD3<Float>(0.035, 0.045, 0.072), // Warm ivory fibre base
-                      dMaxRGB: SIMD3<Float>(2.24, 2.24, 2.22),
-                      intrinsicGamma: 1.04
-                  )
-              ]
-          }
-          
-          /// Non-Destructive Sidecar Recipe stored alongside every captured 12-bit DNG Negative
-          struct DarkroomNegativeRecipe: Codable, Identifiable {
-              var id: UUID = UUID()
-              var captureTimestamp: Date = Date()
-              var lensFocalLengthMM: Float
-              var simulatedApertureFNumber: Float
-              var shutterSpeedSeconds: Float
-              var filmStockID: String
-              var ratedEI: Float
-              var developerTemperatureC: Float
-              var developmentTimeScale: Float
-              var agitationFactor: Float
-              var enlargerHeadTypeRaw: Int32
-              var enlargerExposureEV: Float
-              var filterYellowCC: Float
-              var filterMagentaCC: Float
-              var filterCyanCC: Float
-              var multigradeFilterNumber: Float
-              var enableSplitGrade: Bool
-              var splitGradeSoftBalance: Float
-              var paperID: String
-              var chemicalTonerRaw: Int32
-              var tonerIntensity: Float
-              var dodgeBurnCenterX: Float
-              var dodgeBurnCenterY: Float
-              var dodgeBurnRadius: Float
-              var dodgeBurnStops: Float
           }
           EOF_HALIDE_FILE
 
@@ -665,9 +241,13 @@ jobs:
                                   .gesture(
                                       DragGesture(minimumDistance: 0)
                                           .onChanged { value in
-                                              let size = UIScreen.main.bounds.size
-                                              let ux = Float(min(max(value.location.x / (size.width - 24), 0.05), 0.95))
-                                              let uy = Float(min(max(value.location.y / (size.height * 0.48), 0.05), 0.95))
+                                              let size: CGSize = UIScreen.main.bounds.size
+                                              let viewW: CGFloat = max(size.width - 24.0, 1.0)
+                                              let viewH: CGFloat = max(size.height * 0.48, 1.0)
+                                              let rawX: CGFloat = value.location.x / viewW
+                                              let rawY: CGFloat = value.location.y / viewH
+                                              let ux: Float = Float(min(max(rawX, 0.05), 0.95))
+                                              let uy: Float = Float(min(max(rawY, 0.05), 0.95))
                                               if activeWorkspaceTab == .darkroomEnlarger && abs(renderEngine.dodgeBurnStops) > 0.01 {
                                                   renderEngine.dodgeBurnCenterUV = SIMD2<Float>(ux, uy)
                                               } else {
@@ -1319,6 +899,431 @@ jobs:
           }
           EOF_HALIDE_FILE
 
+          cat << 'EOF_HALIDE_FILE' > "HalideLabPro/Camera/CameraCapturePipeline.swift"
+          import Foundation
+          import AVFoundation
+          import CoreVideo
+          import CoreMedia
+          import Metal
+          import Photos
+          import UIKit
+          
+          /// Hardware optical module descriptors tailored to iPhone 13 Pro Max (A15 Bionic)
+          enum iPhone13ProMaxLens: String, CaseIterable, Identifiable {
+              case ultraWide13mm = "13mm f/1.8 Ultra Wide"
+              case wide26mm      = "26mm f/1.5 Primary Wide"
+              case telephoto77mm = "77mm f/2.8 3x Telephoto"
+          
+              var id: String { rawValue }
+          
+              var focalLengthMM: Float {
+                  switch self {
+                  case .ultraWide13mm: return 13.0
+                  case .wide26mm:      return 26.0
+                  case .telephoto77mm: return 77.0
+                  }
+              }
+          
+              var nativeApertureFNumber: Float {
+                  switch self {
+                  case .ultraWide13mm: return 1.8
+                  case .wide26mm:      return 1.5
+                  case .telephoto77mm: return 2.8
+                  }
+              }
+          
+              var avDeviceType: AVCaptureDevice.DeviceType {
+                  switch self {
+                  case .ultraWide13mm: return .builtInUltraWideCamera
+                  case .wide26mm:      return .builtInWideAngleCamera
+                  case .telephoto77mm: return .builtInTelephotoCamera
+                  }
+              }
+          }
+          
+          /// Manages zero-copy CVMetalTextureCache video/LiDAR streaming and 12-bit Pure Bayer RAW / Apple ProRAW capture.
+          final class CameraCapturePipeline: NSObject, ObservableObject {
+              @Published var activeLens: iPhone13ProMaxLens = .wide26mm
+              @Published var usePureBayerRAWOverProRAW: Bool = true
+              @Published var isSessionRunning: Bool = false
+              @Published var statusMessage: String = "Initializing A15 Bionic ISP & Sensor-Shift OIS..."
+              @Published var capturedRollsCount: Int = 0
+              @Published var latestCapturedPreviewImage: UIImage?
+          
+              let captureSession = AVCaptureSession()
+              private let sessionQueue = DispatchQueue(label: "com.halidelab.pro.camera.session", qos: .userInteractive)
+              private let dataOutputQueue = DispatchQueue(label: "com.halidelab.pro.camera.data", qos: .userInteractive)
+          
+              private var videoDeviceInput: AVCaptureDeviceInput?
+              private let videoDataOutput = AVCaptureVideoDataOutput()
+              private let depthDataOutput = AVCaptureDepthDataOutput()
+              private let photoOutput = AVCapturePhotoOutput()
+              private var outputSynchronizer: AVCaptureDataOutputSynchronizer?
+          
+              private var metalDevice: MTLDevice?
+              private var textureCache: CVMetalTextureCache?
+          
+              // Latest zero-copy Metal textures from camera & LiDAR
+              private let textureLock = NSLock()
+              private var _latestCameraTexture: MTLTexture?
+              private var _latestDepthTexture: MTLTexture?
+          
+              var latestTextures: (camera: MTLTexture?, depth: MTLTexture?) {
+                  textureLock.lock()
+                  defer { textureLock.unlock() }
+                  return (_latestCameraTexture, _latestDepthTexture)
+              }
+          
+              // Active retention of in-flight photo capture delegates
+              private var inFlightPhotoDelegates: [Int64: RAWPhotoCaptureProcessor] = [:]
+          
+              func bindMetalDevice(_ device: MTLDevice) {
+                  self.metalDevice = device
+                  var cache: CVMetalTextureCache?
+                  CVMetalTextureCacheCreate(kCFAllocatorDefault, nil, device, nil, &cache)
+                  self.textureCache = cache
+              }
+          
+              func requestPermissionsAndStart() {
+                  switch AVCaptureDevice.authorizationStatus(for: .video) {
+                  case .authorized:
+                      sessionQueue.async { self.configureSession(for: self.activeLens) }
+                  case .notDetermined:
+                      AVCaptureDevice.requestAccess(for: .video) { granted in
+                          if granted {
+                              self.sessionQueue.async { self.configureSession(for: self.activeLens) }
+                          } else {
+                              DispatchQueue.main.async {
+                                  self.statusMessage = "Camera Permission Denied — Running Synthetic Optical Test Chart"
+                              }
+                          }
+                      }
+                  default:
+                      DispatchQueue.main.async {
+                          self.statusMessage = "Camera Unavailable — Running Synthetic Optical Test Chart"
+                      }
+                  }
+              }
+          
+              func switchOpticalLens(_ newLens: iPhone13ProMaxLens) {
+                  guard newLens != activeLens else { return }
+                  DispatchQueue.main.async { self.activeLens = newLens }
+                  MechanicalHapticsAndMotion.shared.playApertureDetentClick(intensity: 0.90, sharpness: 0.95)
+                  sessionQueue.async {
+                      self.configureSession(for: newLens)
+                  }
+              }
+          
+              func setManualExposureAndFocus(iso: Float, shutterSeconds: Float, focusDistanceMeters: Float) {
+                  sessionQueue.async { [weak self] in
+                      self?.applyHardwareExposureAndFocus(
+                          iso: iso,
+                          shutterSeconds: shutterSeconds,
+                          focusDistanceMeters: focusDistanceMeters
+                      )
+                  }
+              }
+          
+              private func applyHardwareExposureAndFocus(iso: Float, shutterSeconds: Float, focusDistanceMeters: Float) {
+                  guard let device = self.videoDeviceInput?.device else { return }
+                  do {
+                      try device.lockForConfiguration()
+                      if device.isExposureModeSupported(.custom) {
+                          let minISO: Float = device.activeFormat.minISO
+                          let maxISO: Float = device.activeFormat.maxISO
+                          let clampedISO: Float = min(max(iso, minISO), maxISO)
+          
+                          let minDur: Double = CMTimeGetSeconds(device.activeFormat.minExposureDuration)
+                          let maxDur: Double = CMTimeGetSeconds(device.activeFormat.maxExposureDuration)
+                          let requestedSec: Double = Double(shutterSeconds)
+                          let clampedSec: Double = min(max(requestedSec, minDur), maxDur)
+                          let duration: CMTime = CMTimeMakeWithSeconds(clampedSec, preferredTimescale: 1_000_000)
+          
+                          device.setExposureModeCustom(duration: duration, iso: clampedISO, completionHandler: nil)
+                      }
+                      if device.isFocusModeSupported(.locked) {
+                          // Map physical distance (0.02m .. 10.0m) to normalized helicoid lensPosition (0.0 .. 1.0)
+                          let safeDist: Float = max(Float(0.02), focusDistanceMeters)
+                          let denom: Float = Float(1.0) + (safeDist * Float(1.8))
+                          let rawPos: Float = Float(1.0) - (Float(1.0) / denom)
+                          let clampedPos: Float = min(max(rawPos, Float(0.0)), Float(1.0))
+                          device.setFocusModeLocked(lensPosition: clampedPos, completionHandler: nil)
+                      }
+                      device.unlockForConfiguration()
+                  } catch {
+                      print("Manual exposure/focus lock error: \(error.localizedDescription)")
+                  }
+              }
+          
+              private func configureSession(for lens: iPhone13ProMaxLens) {
+                  captureSession.beginConfiguration()
+                  captureSession.sessionPreset = .photo
+          
+                  if let existingInput = videoDeviceInput {
+                      captureSession.removeInput(existingInput)
+                      videoDeviceInput = nil
+                  }
+          
+                  guard let cameraDevice = AVCaptureDevice.default(lens.avDeviceType, for: .video, position: .back)
+                      ?? AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
+                      captureSession.commitConfiguration()
+                      DispatchQueue.main.async {
+                          self.statusMessage = "Simulator/No Sensor Detected — Real-time Synthetic Optical Scene Active"
+                      }
+                      return
+                  }
+          
+                  do {
+                      let input = try AVCaptureDeviceInput(device: cameraDevice)
+                      if captureSession.canAddInput(input) {
+                          captureSession.addInput(input)
+                          videoDeviceInput = input
+                      }
+                  } catch {
+                      captureSession.commitConfiguration()
+                      return
+                  }
+          
+                  // Video Data Output (BGRA8Unorm mapped via zero-copy CVMetalTextureCache)
+                  if !captureSession.outputs.contains(videoDataOutput) {
+                      videoDataOutput.videoSettings = [
+                          kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA),
+                          kCVPixelBufferMetalCompatibilityKey as String: true
+                      ]
+                      videoDataOutput.alwaysDiscardsLateVideoFrames = true
+                      if captureSession.canAddOutput(videoDataOutput) {
+                          captureSession.addOutput(videoDataOutput)
+                      }
+                  }
+          
+                  // Photo Output for 12-bit Pure Bayer RAW (`kCVPixelFormatType_14Bayer_RGGB`) & Apple ProRAW
+                  if !captureSession.outputs.contains(photoOutput) {
+                      if captureSession.canAddOutput(photoOutput) {
+                          captureSession.addOutput(photoOutput)
+                          photoOutput.maxPhotoDimensions = CMVideoDimensions(width: 4032, height: 3024)
+                          if photoOutput.isAppleProRAWSupported {
+                              photoOutput.isAppleProRAWEnabled = !usePureBayerRAWOverProRAW
+                          }
+                          if photoOutput.isDepthDataDeliverySupported {
+                              photoOutput.isDepthDataDeliveryEnabled = true
+                          }
+                      }
+                  }
+          
+                  // LiDAR / Dual-Pixel Depth Output
+                  if !captureSession.outputs.contains(depthDataOutput) {
+                      depthDataOutput.isFilteringEnabled = true
+                      if captureSession.canAddOutput(depthDataOutput) {
+                          captureSession.addOutput(depthDataOutput)
+                      }
+                  }
+          
+                  if let connection = videoDataOutput.connection(with: .video), connection.isVideoOrientationSupported {
+                      connection.videoOrientation = .portrait
+                  }
+          
+                  if captureSession.outputs.contains(depthDataOutput) && !cameraDevice.activeFormat.supportedDepthDataFormats.isEmpty {
+                      outputSynchronizer = AVCaptureDataOutputSynchronizer(dataOutputs: [videoDataOutput, depthDataOutput])
+                      outputSynchronizer?.setDelegate(self, queue: dataOutputQueue)
+                  } else {
+                      videoDataOutput.setSampleBufferDelegate(self, queue: dataOutputQueue)
+                  }
+          
+                  captureSession.commitConfiguration()
+          
+                  if !captureSession.isRunning {
+                      captureSession.startRunning()
+                  }
+          
+                  let rawCount = photoOutput.availableRawPhotoPixelFormatTypes.count
+                  DispatchQueue.main.async {
+                      self.isSessionRunning = self.captureSession.isRunning
+                      self.statusMessage = "\(lens.rawValue) • 12-bit RAW Formats: \(rawCount) • Zero-Copy Metal Active"
+                  }
+              }
+          
+              /// Triggers a 12-bit Pure Bayer RAW (or ProRAW) capture + renders the full-precision darkroom print
+              func capture12BitRAWAndDevelopPrint(
+                  recipe: DarkroomNegativeRecipe,
+                  renderedPrintSnapshot: UIImage?
+              ) {
+                  MechanicalHapticsAndMotion.shared.playMechanicalShutterRelease(shutterDurationSeconds: Double(recipe.shutterSpeedSeconds))
+          
+                  // Always archive the rendered print & sidecar recipe immediately for instant darkroom review
+                  if let printImg = renderedPrintSnapshot {
+                      DispatchQueue.main.async {
+                          self.latestCapturedPreviewImage = printImg
+                          self.capturedRollsCount += 1
+                      }
+                      saveDevelopedPrintAndRecipeToPhotoLibrary(dngData: nil, printImage: printImg, recipe: recipe)
+                  }
+          
+                  sessionQueue.async {
+                      guard self.captureSession.isRunning else { return }
+                      self.photoOutput.isAppleProRAWEnabled = self.photoOutput.isAppleProRAWSupported && !self.usePureBayerRAWOverProRAW
+          
+                      let availableRAW = self.photoOutput.availableRawPhotoPixelFormatTypes
+                      let photoSettings: AVCapturePhotoSettings
+          
+                      if let selectedRAWFormat = availableRAW.first(where: {
+                          self.usePureBayerRAWOverProRAW ? !AVCapturePhotoOutput.isAppleProRAWPixelFormat($0) : AVCapturePhotoOutput.isAppleProRAWPixelFormat($0)
+                      }) ?? availableRAW.first {
+                          photoSettings = AVCapturePhotoSettings(
+                              rawPixelFormatType: selectedRAWFormat,
+                              processedFormat: [AVVideoCodecKey: AVVideoCodecType.hevc]
+                          )
+                      } else {
+                          photoSettings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.hevc])
+                      }
+          
+                      // Preserve authentic photon shot statistics at full 12MP sensor dimensions
+                      photoSettings.maxPhotoDimensions = self.photoOutput.maxPhotoDimensions
+                      photoSettings.photoQualityPrioritization = .quality
+          
+                      let processor = RAWPhotoCaptureProcessor(uid: photoSettings.uniqueID) { [weak self] dngData in
+                          guard let self = self else { return }
+                          self.inFlightPhotoDelegates.removeValue(forKey: photoSettings.uniqueID)
+                          if let dng = dngData {
+                              self.saveDNGNegativeToDocuments(dngData: dng, recipe: recipe)
+                          }
+                      }
+                      self.inFlightPhotoDelegates[photoSettings.uniqueID] = processor
+                      self.photoOutput.capturePhoto(with: photoSettings, delegate: processor)
+                  }
+              }
+          
+              private func saveDNGNegativeToDocuments(dngData: Data, recipe: DarkroomNegativeRecipe) {
+                  let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+                  let baseName = "Negative_\(Int(recipe.captureTimestamp.timeIntervalSince1970))"
+                  let dngURL = docs.appendingPathComponent("\(baseName).dng")
+                  let sidecarURL = docs.appendingPathComponent("\(baseName).json")
+                  try? dngData.write(to: dngURL, options: .atomic)
+                  if let jsonData = try? JSONEncoder().encode(recipe) {
+                      try? jsonData.write(to: sidecarURL, options: .atomic)
+                  }
+              }
+          
+              private func saveDevelopedPrintAndRecipeToPhotoLibrary(dngData: Data?, printImage: UIImage, recipe: DarkroomNegativeRecipe) {
+                  // Also persist the non-destructive JSON sidecar recipe to Documents
+                  let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+                  let sidecarURL = docs.appendingPathComponent("Recipe_\(recipe.id.uuidString).json")
+                  if let jsonData = try? JSONEncoder().encode(recipe) {
+                      try? jsonData.write(to: sidecarURL, options: .atomic)
+                  }
+          
+                  PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+                      guard status == .authorized || status == .limited else { return }
+                      PHPhotoLibrary.shared().performChanges({
+                          let creationRequest = PHAssetCreationRequest.forAsset()
+                          if let pngData = printImage.pngData() {
+                              creationRequest.addResource(with: .photo, data: pngData, options: nil)
+                          }
+                          if let rawDNG = dngData {
+                              let rawOptions = PHAssetResourceCreationOptions()
+                              rawOptions.originalFilename = "HalideLab_12Bit.dng"
+                              creationRequest.addResource(with: .alternatePhoto, data: rawDNG, options: rawOptions)
+                          }
+                      }, completionHandler: nil)
+                  }
+              }
+          }
+          
+          extension CameraCapturePipeline: AVCaptureVideoDataOutputSampleBufferDelegate, AVCaptureDataOutputSynchronizerDelegate {
+              func dataOutputSynchronizer(
+                  _ synchronizer: AVCaptureDataOutputSynchronizer,
+                  didOutput synchronizedDataCollection: AVCaptureSynchronizedDataCollection
+              ) {
+                  if let syncedVideo = synchronizedDataCollection.synchronizedData(for: videoDataOutput) as? AVCaptureSynchronizedSampleBufferData,
+                     !syncedVideo.sampleBufferWasDropped,
+                     let pixelBuffer = CMSampleBufferGetImageBuffer(syncedVideo.sampleBuffer) {
+                      updateCameraMetalTexture(from: pixelBuffer)
+                  }
+          
+                  if let syncedDepth = synchronizedDataCollection.synchronizedData(for: depthDataOutput) as? AVCaptureSynchronizedDepthData,
+                     !syncedDepth.depthDataWasDropped {
+                      let convertedDepth = syncedDepth.depthData.converting(toDepthDataType: kCVPixelFormatType_DepthFloat32)
+                      updateDepthMetalTexture(from: convertedDepth.depthDataMap)
+                  }
+              }
+          
+              func captureOutput(
+                  _ output: AVCaptureOutput,
+                  didOutput sampleBuffer: CMSampleBuffer,
+                  from connection: AVCaptureConnection
+              ) {
+                  guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+                  updateCameraMetalTexture(from: pixelBuffer)
+              }
+          
+              private func updateCameraMetalTexture(from pixelBuffer: CVPixelBuffer) {
+                  guard let cache = textureCache else { return }
+                  let width = CVPixelBufferGetWidth(pixelBuffer)
+                  let height = CVPixelBufferGetHeight(pixelBuffer)
+                  var cvTexOut: CVMetalTexture?
+                  let status = CVMetalTextureCacheCreateTextureFromImage(
+                      kCFAllocatorDefault,
+                      cache,
+                      pixelBuffer,
+                      nil,
+                      .bgra8Unorm,
+                      width,
+                      height,
+                      0,
+                      &cvTexOut
+                  )
+                  if status == kCVReturnSuccess, let cvTex = cvTexOut, let mtlTex = CVMetalTextureGetTexture(cvTex) {
+                      textureLock.lock()
+                      _latestCameraTexture = mtlTex
+                      textureLock.unlock()
+                  }
+              }
+          
+              private func updateDepthMetalTexture(from depthBuffer: CVPixelBuffer) {
+                  guard let cache = textureCache else { return }
+                  let width = CVPixelBufferGetWidth(depthBuffer)
+                  let height = CVPixelBufferGetHeight(depthBuffer)
+                  var cvTexOut: CVMetalTexture?
+                  let status = CVMetalTextureCacheCreateTextureFromImage(
+                      kCFAllocatorDefault,
+                      cache,
+                      depthBuffer,
+                      nil,
+                      .r32Float,
+                      width,
+                      height,
+                      0,
+                      &cvTexOut
+                  )
+                  if status == kCVReturnSuccess, let cvTex = cvTexOut, let mtlTex = CVMetalTextureGetTexture(cvTex) {
+                      textureLock.lock()
+                      _latestDepthTexture = mtlTex
+                      textureLock.unlock()
+                  }
+              }
+          }
+          
+          private final class RAWPhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
+              let uid: Int64
+              private let completion: (Data?) -> Void
+              private var capturedDNGData: Data?
+          
+              init(uid: Int64, completion: @escaping (Data?) -> Void) {
+                  self.uid = uid
+                  self.completion = completion
+              }
+          
+              func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
+                  if photo.isRawPhoto {
+                      capturedDNGData = photo.fileDataRepresentation()
+                  }
+              }
+          
+              func photoOutput(_ output: AVCapturePhotoOutput, didFinishCaptureFor resolvedSettings: AVCaptureResolvedPhotoSettings, error: Error?) {
+                  completion(capturedDNGData)
+              }
+          }
+          EOF_HALIDE_FILE
+
           cat << 'EOF_HALIDE_FILE' > "HalideLabPro/Shaders/AnalogPipelineShaders.metal"
           #include <metal_stdlib>
           #include "../Bridge/ShaderBridgeTypes.h"
@@ -1888,152 +1893,417 @@ jobs:
           }
           EOF_HALIDE_FILE
 
-          cat << 'EOF_HALIDE_FILE' > "HalideLabPro/Hardware/MechanicalHapticsAndMotion.swift"
+          cat << 'EOF_HALIDE_FILE' > "HalideLabPro/Models/FilmStockDatabase.swift"
           import Foundation
-          import CoreHaptics
-          import CoreMotion
-          import Combine
+          import simd
           
-          /// Synthesizes tactile mechanical camera feedback (Leica/Hasselblad aperture detent clicks,
-          /// rangefinder helicoid damping, dual-curtain focal-plane shutter & film advance lever)
-          /// and provides a 120Hz 3-axis gyroscope horizon level.
-          final class MechanicalHapticsAndMotion: ObservableObject {
-              static let shared = MechanicalHapticsAndMotion()
+          /// Represents an authentic real-world film emulsion digitized from manufacturer technical data sheets.
+          struct FilmStockDescriptor: Identifiable, Hashable {
+              let id: String
+              let displayName: String
+              let manufacturer: String
+              let codeName: String
+              let datasheetReference: String
+              let processType: FilmProcessType
+              let grainMorphology: GrainMorphologyType
+              let nominalISO: Float
+              let nativeWhiteBalanceK: Int
+              let defaultDeveloperName: String
+              let defaultDeveloperTempC: Float
+              
+              // H-D Curve Parameters (Red/Cyan, Green/Magenta, Blue/Yellow)
+              let dMinRGB: SIMD3<Float>
+              let dMaxRGB: SIMD3<Float>
+              let gammaRGB: SIMD3<Float>
+              let logH0RGB: SIMD3<Float>
+              let toeCurvatureRGB: SIMD3<Float>
+              let shoulderCurvatureRGB: SIMD3<Float>
+              
+              // Schwarzschild Reciprocity Failure Exponent p (H_eff = E * t^p)
+              let reciprocityExponentRGB: SIMD3<Float>
+              
+              // Spectral Sensitivity Cross-Talk & DIR Couplers Inter-Image Matrix
+              let spectralRow0: SIMD3<Float>
+              let spectralRow1: SIMD3<Float>
+              let spectralRow2: SIMD3<Float>
+              let dirCouplerRow0: SIMD3<Float>
+              let dirCouplerRow1: SIMD3<Float>
+              let dirCouplerRow2: SIMD3<Float>
+              
+              // Halation & Microstructure
+              let halationReflectance: Float
+              let halationGreenLeak: Float
+              let halationThreshold: Float
+              let halationRadiusPixels: Float
+              let diffuseRMSGranularity: Float // Official Diffuse RMS Granularity (sigma_D * 1000 at D=1.0, 48um aperture)
+              let eberhardEdgeBoost: Float
+              let mtf50CyclesPerMM: Float
           
-              @Published var rollDegrees: Double = 0.0
-              @Published var pitchDegrees: Double = 0.0
-              @Published var isLevelAligned: Bool = false
-          
-              private var hapticEngine: CHHapticEngine?
-              private let motionManager = CMMotionManager()
-          
-              private init() {
-                  setupHapticEngine()
-                  startGyroscopeHorizonUpdates()
-              }
-          
-              private func setupHapticEngine() {
-                  guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else { return }
-                  do {
-                      hapticEngine = try CHHapticEngine()
-                      hapticEngine?.playsHapticsOnly = true
-                      hapticEngine?.isAutoShutdownEnabled = true
-                      try hapticEngine?.start()
-                  } catch {
-                      print("CoreHaptics initialization warning: \(error.localizedDescription)")
-                  }
-              }
-          
-              /// Crisp 1/3-stop anodized metal ball-bearing detent click for Aperture & Shutter Dials
-              func playApertureDetentClick(intensity: Float = 0.78, sharpness: Float = 0.92) {
-                  guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else { return }
-                  let event = CHHapticEvent(
-                      eventType: .hapticTransient,
-                      parameters: [
-                          CHHapticEventParameter(parameterID: .hapticIntensity, value: intensity),
-                          CHHapticEventParameter(parameterID: .hapticSharpness, value: sharpness)
-                      ],
-                      relativeTime: 0
-                  )
-                  playEvents([event])
-              }
-          
-              /// Subtle damped grease resistance tick for manual focus helicoid ring
-              func playFocusHelicoidTick() {
-                  playApertureDetentClick(intensity: 0.38, sharpness: 0.45)
-              }
-          
-              /// Two-stage mechanical focal-plane curtain shutter (Front curtain release + exposure delay + Rear curtain thud)
-              func playMechanicalShutterRelease(shutterDurationSeconds: Double) {
-                  guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else { return }
-                  let clampedDelay = min(max(shutterDurationSeconds, 0.012), 1.5)
-                  let frontCurtain = CHHapticEvent(
-                      eventType: .hapticTransient,
-                      parameters: [
-                          CHHapticEventParameter(parameterID: .hapticIntensity, value: 0.95),
-                          CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.88)
-                      ],
-                      relativeTime: 0.0
-                  )
-                  let mirrorDamp = CHHapticEvent(
-                      eventType: .hapticContinuous,
-                      parameters: [
-                          CHHapticEventParameter(parameterID: .hapticIntensity, value: 0.35),
-                          CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.25)
-                      ],
-                      relativeTime: 0.008,
-                      duration: 0.035
-                  )
-                  let rearCurtain = CHHapticEvent(
-                      eventType: .hapticTransient,
-                      parameters: [
-                          CHHapticEventParameter(parameterID: .hapticIntensity, value: 1.0),
-                          CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.62)
-                      ],
-                      relativeTime: clampedDelay
-                  )
-                  playEvents([frontCurtain, mirrorDamp, rearCurtain])
-              }
-          
-              /// Ratcheting brass gear train sensation when winding the film advance lever
-              func playFilmAdvanceLeverWind() {
-                  guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else { return }
-                  var events: [CHHapticEvent] = []
-                  for i in 0..<8 {
-                      let t = TimeInterval(i) * 0.032
-                      let progress = Float(i) / 7.0
-                      let ev = CHHapticEvent(
-                          eventType: .hapticTransient,
-                          parameters: [
-                              CHHapticEventParameter(parameterID: .hapticIntensity, value: 0.45 + 0.45 * progress),
-                              CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.70 + 0.25 * progress)
-                          ],
-                          relativeTime: t
-                      )
-                      events.append(ev)
-                  }
-                  playEvents(events)
-              }
-          
-              private func playEvents(_ events: [CHHapticEvent]) {
-                  guard let engine = hapticEngine else { return }
-                  do {
-                      try engine.start()
-                      let pattern = try CHHapticPattern(events: events, parameters: [])
-                      let player = try engine.makePlayer(with: pattern)
-                      try player.start(atTime: CHHapticTimeImmediate)
-                  } catch {
-                      // Silently ignore if engine is temporarily preempted
-                  }
-              }
-          
-              private func startGyroscopeHorizonUpdates() {
-                  guard motionManager.isDeviceMotionAvailable else { return }
-                  motionManager.deviceMotionUpdateInterval = 1.0 / 60.0
-                  motionManager.startDeviceMotionUpdates(to: .main) { [weak self] motion, _ in
-                      guard let self = self, let attitude = motion?.attitude else { return }
-                      let degRoll = attitude.roll * 180.0 / .pi
-                      let degPitch = (attitude.pitch + (.pi / 2.0)) * 180.0 / .pi
-                      self.rollDegrees = degRoll
-                      self.pitchDegrees = degPitch
-                      self.isLevelAligned = abs(degRoll) < 0.8 && abs(degPitch) < 1.2
-                  }
+              func buildUniforms(
+                  ratedEI: Float,
+                  shutterSeconds: Float,
+                  devTempC: Float,
+                  devTimeScale: Float,
+                  agitation: Float,
+                  frameSeed: UInt32
+              ) -> FilmEmulsionUniforms {
+                  var u = FilmEmulsionUniforms()
+                  u.processType = processType.rawValue
+                  u.grainMorphology = grainMorphology.rawValue
+                  u.isoNominal = nominalISO
+                  u.exposureIndexRated = ratedEI
+                  u.exposureTimeSeconds = shutterSeconds
+                  u.reciprocityExponentRGB = (reciprocityExponentRGB.x, reciprocityExponentRGB.y, reciprocityExponentRGB.z)
+                  u.dMinRGB = (dMinRGB.x, dMinRGB.y, dMinRGB.z)
+                  u.dMaxRGB = (dMaxRGB.x, dMaxRGB.y, dMaxRGB.z)
+                  u.gammaRGB = (gammaRGB.x, gammaRGB.y, gammaRGB.z)
+                  u.logH0RGB = (logH0RGB.x, logH0RGB.y, logH0RGB.z)
+                  u.toeCurvatureRGB = (toeCurvatureRGB.x, toeCurvatureRGB.y, toeCurvatureRGB.z)
+                  u.shoulderCurvatureRGB = (shoulderCurvatureRGB.x, shoulderCurvatureRGB.y, shoulderCurvatureRGB.z)
+                  u.spectralMatrix = simd_float3x3(columns: (spectralRow0, spectralRow1, spectralRow2)).transpose
+                  u.dirCouplerMatrix = simd_float3x3(columns: (dirCouplerRow0, dirCouplerRow1, dirCouplerRow2)).transpose
+                  u.halationReflectance = halationReflectance
+                  u.halationGreenLeak = halationGreenLeak
+                  u.halationThreshold = halationThreshold
+                  u.halationRadiusPixels = halationRadiusPixels
+                  u.diffuseRMSGranularity = diffuseRMSGranularity
+                  u.eberhardEdgeBoost = eberhardEdgeBoost
+                  u.mtf50CyclesPerMM = mtf50CyclesPerMM
+                  u.developerTemperatureC = devTempC
+                  u.developmentTimeScale = devTimeScale
+                  u.agitationFactor = agitation
+                  u.frameRandomSeed = frameSeed
+                  return u
               }
           }
-          EOF_HALIDE_FILE
-
-          cat << 'EOF_HALIDE_FILE' > "HalideLabPro/App/HalideLabProApp.swift"
-          import SwiftUI
           
-          @main
-          struct HalideLabProApp: App {
-              var body: some Scene {
-                  WindowGroup {
-                      MechanicalCameraView()
-                          .preferredColorScheme(.dark)
-                          .statusBar(hidden: true)
-                  }
-              }
+          /// Represents an authentic darkroom photographic paper from Kodak & Ilford technical publications.
+          struct DarkroomPaperDescriptor: Identifiable, Hashable {
+              let id: String
+              let displayName: String
+              let datasheetReference: String
+              let isMonochromeMultigrade: Bool
+              let dMinRGB: SIMD3<Float>
+              let dMaxRGB: SIMD3<Float>
+              let intrinsicGamma: Float
+          }
+          
+          /// Authoritative Database of 7 Classic Film Stocks & 3 Darkroom Papers
+          enum FilmStockDatabase {
+              static let allFilms: [FilmStockDescriptor] = [
+                  // 1. Kodak Professional Portra 400 (Publication E-4050)
+                  FilmStockDescriptor(
+                      id: "kodak_portra_400",
+                      displayName: "Kodak Portra 400",
+                      manufacturer: "Kodak Alaris",
+                      codeName: "400VC / E-4050",
+                      datasheetReference: "Kodak Tech Pub E-4050 (Status M Densitometry)",
+                      processType: .c41ColorNegative,
+                      grainMorphology: .tabular,
+                      nominalISO: 400.0,
+                      nativeWhiteBalanceK: 5500,
+                      defaultDeveloperName: "Kodak Flexicolor C-41",
+                      defaultDeveloperTempC: 37.8,
+                      dMinRGB: SIMD3<Float>(0.22, 0.58, 0.88), // Authentic C-41 Orange Mask Base + Fog
+                      dMaxRGB: SIMD3<Float>(2.45, 2.82, 3.10),
+                      gammaRGB: SIMD3<Float>(0.62, 0.64, 0.66),
+                      logH0RGB: SIMD3<Float>(-0.78, -0.76, -0.74),
+                      toeCurvatureRGB: SIMD3<Float>(0.58, 0.56, 0.55),
+                      shoulderCurvatureRGB: SIMD3<Float>(0.82, 0.80, 0.78), // Ultra-wide +4 EV highlight latitude
+                      reciprocityExponentRGB: SIMD3<Float>(0.87, 0.88, 0.85),
+                      spectralRow0: SIMD3<Float>(0.94, 0.05, 0.01),
+                      spectralRow1: SIMD3<Float>(0.04, 0.92, 0.04),
+                      spectralRow2: SIMD3<Float>(0.01, 0.06, 0.93),
+                      dirCouplerRow0: SIMD3<Float>(1.14, -0.09, -0.05),
+                      dirCouplerRow1: SIMD3<Float>(-0.07, 1.15, -0.08),
+                      dirCouplerRow2: SIMD3<Float>(-0.04, -0.08, 1.12),
+                      halationReflectance: 0.045,
+                      halationGreenLeak: 0.18,
+                      halationThreshold: 1.15,
+                      halationRadiusPixels: 4.5,
+                      diffuseRMSGranularity: 11.0, // Official RMS = 11
+                      eberhardEdgeBoost: 0.14,
+                      mtf50CyclesPerMM: 65.0
+                  ),
+                  
+                  // 2. Kodak Professional Tri-X 400 (Publication F-4017)
+                  FilmStockDescriptor(
+                      id: "kodak_trix_400",
+                      displayName: "Kodak Tri-X 400",
+                      manufacturer: "Eastman Kodak",
+                      codeName: "400TX / F-4017",
+                      datasheetReference: "Kodak Tech Pub F-4017 (D-76 1:1 @ 20°C)",
+                      processType: .bwMonochromeNegative,
+                      grainMorphology: .cubic,
+                      nominalISO: 400.0,
+                      nativeWhiteBalanceK: 5500,
+                      defaultDeveloperName: "Kodak D-76 (1+1) / HC-110B",
+                      defaultDeveloperTempC: 20.0,
+                      dMinRGB: SIMD3<Float>(0.28, 0.28, 0.28),
+                      dMaxRGB: SIMD3<Float>(2.38, 2.38, 2.38),
+                      gammaRGB: SIMD3<Float>(0.65, 0.65, 0.65),
+                      logH0RGB: SIMD3<Float>(-0.74, -0.74, -0.74),
+                      toeCurvatureRGB: SIMD3<Float>(0.45, 0.45, 0.45), // Classic gritty shadow toe drop
+                      shoulderCurvatureRGB: SIMD3<Float>(0.72, 0.72, 0.72),
+                      reciprocityExponentRGB: SIMD3<Float>(0.80, 0.80, 0.80),
+                      spectralRow0: SIMD3<Float>(0.34, 0.54, 0.12), // Panchromatic spectral sensitivity
+                      spectralRow1: SIMD3<Float>(0.34, 0.54, 0.12),
+                      spectralRow2: SIMD3<Float>(0.34, 0.54, 0.12),
+                      dirCouplerRow0: SIMD3<Float>(1.00, 0.00, 0.00),
+                      dirCouplerRow1: SIMD3<Float>(0.00, 1.00, 0.00),
+                      dirCouplerRow2: SIMD3<Float>(0.00, 0.00, 1.00),
+                      halationReflectance: 0.06,
+                      halationGreenLeak: 1.00,
+                      halationThreshold: 1.10,
+                      halationRadiusPixels: 5.0,
+                      diffuseRMSGranularity: 17.0, // Official RMS = 17 (Classic cubic grain)
+                      eberhardEdgeBoost: 0.24,
+                      mtf50CyclesPerMM: 55.0
+                  ),
+                  
+                  // 3. Kodak Professional T-Max 400 (Publication F-4043)
+                  FilmStockDescriptor(
+                      id: "kodak_tmax_400",
+                      displayName: "Kodak T-Max 400",
+                      manufacturer: "Eastman Kodak",
+                      codeName: "400TMY-2 / F-4043",
+                      datasheetReference: "Kodak Tech Pub F-4043 (T-Grain Emulsion)",
+                      processType: .bwMonochromeNegative,
+                      grainMorphology: .tabular,
+                      nominalISO: 400.0,
+                      nativeWhiteBalanceK: 5500,
+                      defaultDeveloperName: "Kodak T-Max Developer (1+4)",
+                      defaultDeveloperTempC: 20.0,
+                      dMinRGB: SIMD3<Float>(0.24, 0.24, 0.24),
+                      dMaxRGB: SIMD3<Float>(2.52, 2.52, 2.52),
+                      gammaRGB: SIMD3<Float>(0.62, 0.62, 0.62),
+                      logH0RGB: SIMD3<Float>(-0.76, -0.76, -0.76),
+                      toeCurvatureRGB: SIMD3<Float>(0.54, 0.54, 0.54),
+                      shoulderCurvatureRGB: SIMD3<Float>(0.84, 0.84, 0.84),
+                      reciprocityExponentRGB: SIMD3<Float>(0.88, 0.88, 0.88),
+                      spectralRow0: SIMD3<Float>(0.36, 0.52, 0.12),
+                      spectralRow1: SIMD3<Float>(0.36, 0.52, 0.12),
+                      spectralRow2: SIMD3<Float>(0.36, 0.52, 0.12),
+                      dirCouplerRow0: SIMD3<Float>(1.00, 0.00, 0.00),
+                      dirCouplerRow1: SIMD3<Float>(0.00, 1.00, 0.00),
+                      dirCouplerRow2: SIMD3<Float>(0.00, 0.00, 1.00),
+                      halationReflectance: 0.035,
+                      halationGreenLeak: 1.00,
+                      halationThreshold: 1.25,
+                      halationRadiusPixels: 3.5,
+                      diffuseRMSGranularity: 10.0, // Official RMS = 10 (World's sharpest 400-speed B&W)
+                      eberhardEdgeBoost: 0.28,
+                      mtf50CyclesPerMM: 75.0
+                  ),
+                  
+                  // 4. Ilford HP5 Plus 400 (Harman Technology Technical Information)
+                  FilmStockDescriptor(
+                      id: "ilford_hp5_plus",
+                      displayName: "Ilford HP5 Plus",
+                      manufacturer: "Harman / Ilford Photo",
+                      codeName: "HP5+ 400/27°",
+                      datasheetReference: "Ilford HP5 Plus Technical Sheet (ID-11 / Microphen)",
+                      processType: .bwMonochromeNegative,
+                      grainMorphology: .cubic,
+                      nominalISO: 400.0,
+                      nativeWhiteBalanceK: 5500,
+                      defaultDeveloperName: "Ilford ID-11 / Microphen (Push)",
+                      defaultDeveloperTempC: 20.0,
+                      dMinRGB: SIMD3<Float>(0.26, 0.26, 0.26),
+                      dMaxRGB: SIMD3<Float>(2.32, 2.32, 2.32),
+                      gammaRGB: SIMD3<Float>(0.60, 0.60, 0.60),
+                      logH0RGB: SIMD3<Float>(-0.75, -0.75, -0.75),
+                      toeCurvatureRGB: SIMD3<Float>(0.52, 0.52, 0.52),
+                      shoulderCurvatureRGB: SIMD3<Float>(0.78, 0.78, 0.78),
+                      reciprocityExponentRGB: SIMD3<Float>(0.78, 0.78, 0.78),
+                      spectralRow0: SIMD3<Float>(0.32, 0.55, 0.13),
+                      spectralRow1: SIMD3<Float>(0.32, 0.55, 0.13),
+                      spectralRow2: SIMD3<Float>(0.32, 0.55, 0.13),
+                      dirCouplerRow0: SIMD3<Float>(1.00, 0.00, 0.00),
+                      dirCouplerRow1: SIMD3<Float>(0.00, 1.00, 0.00),
+                      dirCouplerRow2: SIMD3<Float>(0.00, 0.00, 1.00),
+                      halationReflectance: 0.075,
+                      halationGreenLeak: 1.00,
+                      halationThreshold: 1.05,
+                      halationRadiusPixels: 5.5,
+                      diffuseRMSGranularity: 16.0,
+                      eberhardEdgeBoost: 0.21,
+                      mtf50CyclesPerMM: 52.0
+                  ),
+                  
+                  // 5. Fujifilm Fujichrome Velvia 50 (RVP50 Data Guide)
+                  FilmStockDescriptor(
+                      id: "fujifilm_velvia_50",
+                      displayName: "Fujichrome Velvia 50",
+                      manufacturer: "Fujifilm Corp.",
+                      codeName: "RVP50 / ISO 50/18°",
+                      datasheetReference: "Fujifilm Professional Film Data Guide (RVP50 Status A)",
+                      processType: .e6ColorReversal,
+                      grainMorphology: .fineE6,
+                      nominalISO: 50.0,
+                      nativeWhiteBalanceK: 5500,
+                      defaultDeveloperName: "Fujichrome E-6 First & Color Dev",
+                      defaultDeveloperTempC: 38.0,
+                      dMinRGB: SIMD3<Float>(0.12, 0.13, 0.14),
+                      dMaxRGB: SIMD3<Float>(3.65, 3.72, 3.60), // Deep Dmax > 3.6 slide blacks
+                      gammaRGB: SIMD3<Float>(1.78, 1.82, 1.75), // High-contrast reversal S-curve
+                      logH0RGB: SIMD3<Float>(-0.72, -0.72, -0.72),
+                      toeCurvatureRGB: SIMD3<Float>(0.44, 0.44, 0.44),
+                      shoulderCurvatureRGB: SIMD3<Float>(0.46, 0.46, 0.46),
+                      reciprocityExponentRGB: SIMD3<Float>(0.76, 0.79, 0.74), // Requires correction past 4s
+                      spectralRow0: SIMD3<Float>(0.97, 0.02, 0.01),
+                      spectralRow1: SIMD3<Float>(0.02, 0.96, 0.02),
+                      spectralRow2: SIMD3<Float>(0.01, 0.03, 0.96),
+                      dirCouplerRow0: SIMD3<Float>(1.26, -0.15, -0.11), // High-purity dye couplers
+                      dirCouplerRow1: SIMD3<Float>(-0.12, 1.28, -0.16),
+                      dirCouplerRow2: SIMD3<Float>(-0.09, -0.15, 1.24),
+                      halationReflectance: 0.025,
+                      halationGreenLeak: 0.12,
+                      halationThreshold: 1.35,
+                      halationRadiusPixels: 3.0,
+                      diffuseRMSGranularity: 9.0, // Official RMS = 9
+                      eberhardEdgeBoost: 0.22,
+                      mtf50CyclesPerMM: 70.0
+                  ),
+                  
+                  // 6. Fujifilm Fujichrome Provia 100F (RDPIII Data Sheet)
+                  FilmStockDescriptor(
+                      id: "fujifilm_provia_100f",
+                      displayName: "Fujichrome Provia 100F",
+                      manufacturer: "Fujifilm Corp.",
+                      codeName: "RDPIII / ISO 100/21°",
+                      datasheetReference: "Fujifilm Datasheet RDPIII (RMS 8, Zero Reciprocity to 128s)",
+                      processType: .e6ColorReversal,
+                      grainMorphology: .fineE6,
+                      nominalISO: 100.0,
+                      nativeWhiteBalanceK: 5500,
+                      defaultDeveloperName: "Fujichrome E-6 Standard",
+                      defaultDeveloperTempC: 38.0,
+                      dMinRGB: SIMD3<Float>(0.11, 0.12, 0.13),
+                      dMaxRGB: SIMD3<Float>(3.55, 3.60, 3.50),
+                      gammaRGB: SIMD3<Float>(1.48, 1.50, 1.48),
+                      logH0RGB: SIMD3<Float>(-0.74, -0.74, -0.74),
+                      toeCurvatureRGB: SIMD3<Float>(0.55, 0.55, 0.55),
+                      shoulderCurvatureRGB: SIMD3<Float>(0.56, 0.56, 0.56),
+                      reciprocityExponentRGB: SIMD3<Float>(0.98, 0.98, 0.98), // Legendary reciprocity stability up to 128s
+                      spectralRow0: SIMD3<Float>(0.95, 0.03, 0.02),
+                      spectralRow1: SIMD3<Float>(0.03, 0.94, 0.03),
+                      spectralRow2: SIMD3<Float>(0.01, 0.04, 0.95),
+                      dirCouplerRow0: SIMD3<Float>(1.16, -0.09, -0.07),
+                      dirCouplerRow1: SIMD3<Float>(-0.08, 1.18, -0.10),
+                      dirCouplerRow2: SIMD3<Float>(-0.06, -0.09, 1.15),
+                      halationReflectance: 0.020,
+                      halationGreenLeak: 0.10,
+                      halationThreshold: 1.40,
+                      halationRadiusPixels: 2.8,
+                      diffuseRMSGranularity: 8.0, // Official RMS = 8 (Finest slide granularity)
+                      eberhardEdgeBoost: 0.18,
+                      mtf50CyclesPerMM: 72.0
+                  ),
+                  
+                  // 7. Kodak Vision3 500T (5219) / CineStill 800T Remjet-Free C-41 Cross-Process
+                  FilmStockDescriptor(
+                      id: "kodak_vision3_500t_cinestill_800t",
+                      displayName: "Vision3 500T / CineStill 800T",
+                      manufacturer: "Eastman Kodak / CineStill",
+                      codeName: "5219 / 800T Tungsten",
+                      datasheetReference: "Kodak H-1-5219 Tech Data (DLT + Sub-Micron + Remjet-Free Halation)",
+                      processType: .c41CrossRemjetFree,
+                      grainMorphology: .tabular,
+                      nominalISO: 800.0,
+                      nativeWhiteBalanceK: 3200, // Tungsten balanced
+                      defaultDeveloperName: "C-41 Cross-Process (Remjet Removed)",
+                      defaultDeveloperTempC: 37.8,
+                      dMinRGB: SIMD3<Float>(0.20, 0.55, 0.85),
+                      dMaxRGB: SIMD3<Float>(2.50, 2.85, 3.15),
+                      gammaRGB: SIMD3<Float>(0.60, 0.62, 0.64),
+                      logH0RGB: SIMD3<Float>(-0.80, -0.77, -0.71), // Extra blue sensitivity for 3200K tungsten balance
+                      toeCurvatureRGB: SIMD3<Float>(0.62, 0.60, 0.58), // Dye Layering Technology (DLT) clean shadows
+                      shoulderCurvatureRGB: SIMD3<Float>(0.88, 0.86, 0.85), // +2 stops Sub-Micron extended highlight latitude
+                      reciprocityExponentRGB: SIMD3<Float>(0.89, 0.90, 0.88),
+                      spectralRow0: SIMD3<Float>(0.88, 0.08, 0.04),
+                      spectralRow1: SIMD3<Float>(0.05, 0.90, 0.05),
+                      spectralRow2: SIMD3<Float>(0.02, 0.08, 1.08), // Boosted tungsten blue response
+                      dirCouplerRow0: SIMD3<Float>(1.18, -0.11, -0.07),
+                      dirCouplerRow1: SIMD3<Float>(-0.08, 1.19, -0.11),
+                      dirCouplerRow2: SIMD3<Float>(-0.05, -0.10, 1.15),
+                      halationReflectance: 0.38, // Characteristic crimson-orange corona from removed Remjet backing
+                      halationGreenLeak: 0.28,
+                      halationThreshold: 0.78,
+                      halationRadiusPixels: 8.5,
+                      diffuseRMSGranularity: 11.5,
+                      eberhardEdgeBoost: 0.16,
+                      mtf50CyclesPerMM: 68.0
+                  )
+              ]
+          
+              static let allPapers: [DarkroomPaperDescriptor] = [
+                  DarkroomPaperDescriptor(
+                      id: "kodak_endura_premier",
+                      displayName: "Kodak Endura Premier RA-4",
+                      datasheetReference: "Kodak Tech Pub E-4070 (Status A Reflection)",
+                      isMonochromeMultigrade: false,
+                      dMinRGB: SIMD3<Float>(0.04, 0.04, 0.05),
+                      dMaxRGB: SIMD3<Float>(2.22, 2.20, 2.18),
+                      intrinsicGamma: 1.00
+                  ),
+                  DarkroomPaperDescriptor(
+                      id: "kodak_ektacolor_edge",
+                      displayName: "Kodak Ektacolor Edge RA-4",
+                      datasheetReference: "Kodak Tech Pub E-7020 (High Chroma)",
+                      isMonochromeMultigrade: false,
+                      dMinRGB: SIMD3<Float>(0.03, 0.03, 0.04),
+                      dMaxRGB: SIMD3<Float>(2.28, 2.26, 2.24),
+                      intrinsicGamma: 1.12
+                  ),
+                  DarkroomPaperDescriptor(
+                      id: "ilford_multigrade_rc_deluxe",
+                      displayName: "Ilford Multigrade RC Deluxe (Grades 00–5)",
+                      datasheetReference: "Ilford Multigrade Technical Data C20",
+                      isMonochromeMultigrade: true,
+                      dMinRGB: SIMD3<Float>(0.04, 0.04, 0.045),
+                      dMaxRGB: SIMD3<Float>(2.15, 2.15, 2.15),
+                      intrinsicGamma: 1.00
+                  ),
+                  DarkroomPaperDescriptor(
+                      id: "ilford_multigrade_fb_warmtone",
+                      displayName: "Ilford Multigrade FB Warmtone (Fibre Base)",
+                      datasheetReference: "Ilford Fibre Base Warmtone Spec (Rich Silver Blacks)",
+                      isMonochromeMultigrade: true,
+                      dMinRGB: SIMD3<Float>(0.035, 0.045, 0.072), // Warm ivory fibre base
+                      dMaxRGB: SIMD3<Float>(2.24, 2.24, 2.22),
+                      intrinsicGamma: 1.04
+                  )
+              ]
+          }
+          
+          /// Non-Destructive Sidecar Recipe stored alongside every captured 12-bit DNG Negative
+          struct DarkroomNegativeRecipe: Codable, Identifiable {
+              var id: UUID = UUID()
+              var captureTimestamp: Date = Date()
+              var lensFocalLengthMM: Float
+              var simulatedApertureFNumber: Float
+              var shutterSpeedSeconds: Float
+              var filmStockID: String
+              var ratedEI: Float
+              var developerTemperatureC: Float
+              var developmentTimeScale: Float
+              var agitationFactor: Float
+              var enlargerHeadTypeRaw: Int32
+              var enlargerExposureEV: Float
+              var filterYellowCC: Float
+              var filterMagentaCC: Float
+              var filterCyanCC: Float
+              var multigradeFilterNumber: Float
+              var enableSplitGrade: Bool
+              var splitGradeSoftBalance: Float
+              var paperID: String
+              var chemicalTonerRaw: Int32
+              var tonerIntensity: Float
+              var dodgeBurnCenterX: Float
+              var dodgeBurnCenterY: Float
+              var dodgeBurnRadius: Float
+              var dodgeBurnStops: Float
           }
           EOF_HALIDE_FILE
 
@@ -2331,12 +2601,14 @@ jobs:
           
                           // Foreground subject sphere at 1.2m
                           if dist < 0.26 {
-                              let sphereZ = sqrt(max(0.0, 0.26 * 0.26 - dist * dist))
-                              let light = max(0.1, (dx * -0.5 + dy * -0.6 + sphereZ * 0.85) / 0.26)
-                              r = min(1.0, 0.78 * light + 0.12)
-                              g = min(1.0, 0.56 * light + 0.08)
-                              b = min(1.0, 0.44 * light + 0.06)
-                              z = 1.2 - sphereZ * 0.5
+                              let radSq: Float = max(Float(0.0), Float(0.0676) - dist * dist)
+                              let sphereZ: Float = sqrt(radSq)
+                              let dotTerm: Float = (dx * Float(-0.5)) + (dy * Float(-0.6)) + (sphereZ * Float(0.85))
+                              let light: Float = max(Float(0.1), dotTerm / Float(0.26))
+                              r = min(Float(1.0), Float(0.78) * light + Float(0.12))
+                              g = min(Float(1.0), Float(0.56) * light + Float(0.08))
+                              b = min(Float(1.0), Float(0.44) * light + Float(0.06))
+                              z = Float(1.2) - sphereZ * Float(0.5)
                           }
           
                           // Specular background streetlamp / neon bokeh highlights for halation & polygonal bokeh verification
@@ -2567,419 +2839,162 @@ jobs:
           }
           EOF_HALIDE_FILE
 
-          cat << 'EOF_HALIDE_FILE' > "HalideLabPro/Camera/CameraCapturePipeline.swift"
+          cat << 'EOF_HALIDE_FILE' > "HalideLabPro/Hardware/MechanicalHapticsAndMotion.swift"
           import Foundation
-          import AVFoundation
-          import CoreVideo
-          import CoreMedia
-          import Metal
-          import Photos
-          import UIKit
+          import CoreHaptics
+          import CoreMotion
+          import Combine
           
-          /// Hardware optical module descriptors tailored to iPhone 13 Pro Max (A15 Bionic)
-          enum iPhone13ProMaxLens: String, CaseIterable, Identifiable {
-              case ultraWide13mm = "13mm f/1.8 Ultra Wide"
-              case wide26mm      = "26mm f/1.5 Primary Wide"
-              case telephoto77mm = "77mm f/2.8 3x Telephoto"
+          /// Synthesizes tactile mechanical camera feedback (Leica/Hasselblad aperture detent clicks,
+          /// rangefinder helicoid damping, dual-curtain focal-plane shutter & film advance lever)
+          /// and provides a 120Hz 3-axis gyroscope horizon level.
+          final class MechanicalHapticsAndMotion: ObservableObject {
+              static let shared = MechanicalHapticsAndMotion()
           
-              var id: String { rawValue }
+              @Published var rollDegrees: Double = 0.0
+              @Published var pitchDegrees: Double = 0.0
+              @Published var isLevelAligned: Bool = false
           
-              var focalLengthMM: Float {
-                  switch self {
-                  case .ultraWide13mm: return 13.0
-                  case .wide26mm:      return 26.0
-                  case .telephoto77mm: return 77.0
-                  }
+              private var hapticEngine: CHHapticEngine?
+              private let motionManager = CMMotionManager()
+          
+              private init() {
+                  setupHapticEngine()
+                  startGyroscopeHorizonUpdates()
               }
           
-              var nativeApertureFNumber: Float {
-                  switch self {
-                  case .ultraWide13mm: return 1.8
-                  case .wide26mm:      return 1.5
-                  case .telephoto77mm: return 2.8
-                  }
-              }
-          
-              var avDeviceType: AVCaptureDevice.DeviceType {
-                  switch self {
-                  case .ultraWide13mm: return .builtInUltraWideCamera
-                  case .wide26mm:      return .builtInWideAngleCamera
-                  case .telephoto77mm: return .builtInTelephotoCamera
-                  }
-              }
-          }
-          
-          /// Manages zero-copy CVMetalTextureCache video/LiDAR streaming and 12-bit Pure Bayer RAW / Apple ProRAW capture.
-          final class CameraCapturePipeline: NSObject, ObservableObject {
-              @Published var activeLens: iPhone13ProMaxLens = .wide26mm
-              @Published var usePureBayerRAWOverProRAW: Bool = true
-              @Published var isSessionRunning: Bool = false
-              @Published var statusMessage: String = "Initializing A15 Bionic ISP & Sensor-Shift OIS..."
-              @Published var capturedRollsCount: Int = 0
-              @Published var latestCapturedPreviewImage: UIImage?
-          
-              let captureSession = AVCaptureSession()
-              private let sessionQueue = DispatchQueue(label: "com.halidelab.pro.camera.session", qos: .userInteractive)
-              private let dataOutputQueue = DispatchQueue(label: "com.halidelab.pro.camera.data", qos: .userInteractive)
-          
-              private var videoDeviceInput: AVCaptureDeviceInput?
-              private let videoDataOutput = AVCaptureVideoDataOutput()
-              private let depthDataOutput = AVCaptureDepthDataOutput()
-              private let photoOutput = AVCapturePhotoOutput()
-              private var outputSynchronizer: AVCaptureDataOutputSynchronizer?
-          
-              private var metalDevice: MTLDevice?
-              private var textureCache: CVMetalTextureCache?
-          
-              // Latest zero-copy Metal textures from camera & LiDAR
-              private let textureLock = NSLock()
-              private var _latestCameraTexture: MTLTexture?
-              private var _latestDepthTexture: MTLTexture?
-          
-              var latestTextures: (camera: MTLTexture?, depth: MTLTexture?) {
-                  textureLock.lock()
-                  defer { textureLock.unlock() }
-                  return (_latestCameraTexture, _latestDepthTexture)
-              }
-          
-              // Active retention of in-flight photo capture delegates
-              private var inFlightPhotoDelegates: [Int64: RAWPhotoCaptureProcessor] = [:]
-          
-              func bindMetalDevice(_ device: MTLDevice) {
-                  self.metalDevice = device
-                  var cache: CVMetalTextureCache?
-                  CVMetalTextureCacheCreate(kCFAllocatorDefault, nil, device, nil, &cache)
-                  self.textureCache = cache
-              }
-          
-              func requestPermissionsAndStart() {
-                  switch AVCaptureDevice.authorizationStatus(for: .video) {
-                  case .authorized:
-                      sessionQueue.async { self.configureSession(for: self.activeLens) }
-                  case .notDetermined:
-                      AVCaptureDevice.requestAccess(for: .video) { granted in
-                          if granted {
-                              self.sessionQueue.async { self.configureSession(for: self.activeLens) }
-                          } else {
-                              DispatchQueue.main.async {
-                                  self.statusMessage = "Camera Permission Denied — Running Synthetic Optical Test Chart"
-                              }
-                          }
-                      }
-                  default:
-                      DispatchQueue.main.async {
-                          self.statusMessage = "Camera Unavailable — Running Synthetic Optical Test Chart"
-                      }
-                  }
-              }
-          
-              func switchOpticalLens(_ newLens: iPhone13ProMaxLens) {
-                  guard newLens != activeLens else { return }
-                  DispatchQueue.main.async { self.activeLens = newLens }
-                  MechanicalHapticsAndMotion.shared.playApertureDetentClick(intensity: 0.90, sharpness: 0.95)
-                  sessionQueue.async {
-                      self.configureSession(for: newLens)
-                  }
-              }
-          
-              func setManualExposureAndFocus(iso: Float, shutterSeconds: Float, focusDistanceMeters: Float) {
-                  sessionQueue.async {
-                      guard let device = self.videoDeviceInput?.device else { return }
-                      do {
-                          try device.lockForConfiguration()
-                          if device.isExposureModeSupported(.custom) {
-                              let minISO = device.activeFormat.minISO
-                              let maxISO = device.activeFormat.maxISO
-                              let clampedISO = min(max(iso, minISO), maxISO)
-          
-                              let minDur = CMTimeGetSeconds(device.activeFormat.minExposureDuration)
-                              let maxDur = CMTimeGetSeconds(device.activeFormat.maxExposureDuration)
-                              let clampedSec = min(max(Double(shutterSeconds), minDur), maxDur)
-                              let duration = CMTimeMakeWithSeconds(clampedSec, preferredTimescale: 1_000_000)
-          
-                              device.setExposureModeCustom(duration: duration, iso: clampedISO, completionHandler: nil)
-                          }
-                          if device.isFocusModeSupported(.locked) {
-                              // Map physical distance (0.02m .. 10.0m) to normalized helicoid lensPosition (0.0 .. 1.0)
-                              let normPos = Float(1.0 - (1.0 / (1.0 + max(0.02, focusDistanceMeters) * 1.8)))
-                              device.setFocusModeLocked(lensPosition: min(max(normPos, 0.0), 1.0), completionHandler: nil)
-                          }
-                          device.unlockForConfiguration()
-                      } catch {
-                          print("Manual exposure/focus lock error: \(error.localizedDescription)")
-                      }
-                  }
-              }
-          
-              private func configureSession(for lens: iPhone13ProMaxLens) {
-                  captureSession.beginConfiguration()
-                  captureSession.sessionPreset = .photo
-          
-                  if let existingInput = videoDeviceInput {
-                      captureSession.removeInput(existingInput)
-                      videoDeviceInput = nil
-                  }
-          
-                  guard let cameraDevice = AVCaptureDevice.default(lens.avDeviceType, for: .video, position: .back)
-                      ?? AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
-                      captureSession.commitConfiguration()
-                      DispatchQueue.main.async {
-                          self.statusMessage = "Simulator/No Sensor Detected — Real-time Synthetic Optical Scene Active"
-                      }
-                      return
-                  }
-          
+              private func setupHapticEngine() {
+                  guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else { return }
                   do {
-                      let input = try AVCaptureDeviceInput(device: cameraDevice)
-                      if captureSession.canAddInput(input) {
-                          captureSession.addInput(input)
-                          videoDeviceInput = input
-                      }
+                      hapticEngine = try CHHapticEngine()
+                      hapticEngine?.playsHapticsOnly = true
+                      hapticEngine?.isAutoShutdownEnabled = true
+                      try hapticEngine?.start()
                   } catch {
-                      captureSession.commitConfiguration()
-                      return
-                  }
-          
-                  // Video Data Output (BGRA8Unorm mapped via zero-copy CVMetalTextureCache)
-                  if !captureSession.outputs.contains(videoDataOutput) {
-                      videoDataOutput.videoSettings = [
-                          kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA),
-                          kCVPixelBufferMetalCompatibilityKey as String: true
-                      ]
-                      videoDataOutput.alwaysDiscardsLateVideoFrames = true
-                      if captureSession.canAddOutput(videoDataOutput) {
-                          captureSession.addOutput(videoDataOutput)
-                      }
-                  }
-          
-                  // Photo Output for 12-bit Pure Bayer RAW (`kCVPixelFormatType_14Bayer_RGGB`) & Apple ProRAW
-                  if !captureSession.outputs.contains(photoOutput) {
-                      if captureSession.canAddOutput(photoOutput) {
-                          captureSession.addOutput(photoOutput)
-                          photoOutput.isHighResolutionCaptureEnabled = true
-                          if #available(iOS 16.0, *) {
-                              photoOutput.maxPhotoDimensions = CMVideoDimensions(width: 4032, height: 3024)
-                          }
-                          if photoOutput.isAppleProRAWSupported {
-                              photoOutput.isAppleProRAWEnabled = !usePureBayerRAWOverProRAW
-                          }
-                          if photoOutput.isDepthDataDeliverySupported {
-                              photoOutput.isDepthDataDeliveryEnabled = true
-                          }
-                      }
-                  }
-          
-                  // LiDAR / Dual-Pixel Depth Output
-                  if !captureSession.outputs.contains(depthDataOutput) {
-                      depthDataOutput.isFilteringEnabled = true
-                      if captureSession.canAddOutput(depthDataOutput) {
-                          captureSession.addOutput(depthDataOutput)
-                      }
-                  }
-          
-                  if let connection = videoDataOutput.connection(with: .video), connection.isVideoOrientationSupported {
-                      connection.videoOrientation = .portrait
-                  }
-          
-                  if captureSession.outputs.contains(depthDataOutput) && !cameraDevice.activeFormat.supportedDepthDataFormats.isEmpty {
-                      outputSynchronizer = AVCaptureDataOutputSynchronizer(dataOutputs: [videoDataOutput, depthDataOutput])
-                      outputSynchronizer?.setDelegate(self, queue: dataOutputQueue)
-                  } else {
-                      videoDataOutput.setSampleBufferDelegate(self, queue: dataOutputQueue)
-                  }
-          
-                  captureSession.commitConfiguration()
-          
-                  if !captureSession.isRunning {
-                      captureSession.startRunning()
-                  }
-          
-                  let rawCount = photoOutput.availableRawPhotoPixelFormatTypes.count
-                  DispatchQueue.main.async {
-                      self.isSessionRunning = self.captureSession.isRunning
-                      self.statusMessage = "\(lens.rawValue) • 12-bit RAW Formats: \(rawCount) • Zero-Copy Metal Active"
+                      print("CoreHaptics initialization warning: \(error.localizedDescription)")
                   }
               }
           
-              /// Triggers a 12-bit Pure Bayer RAW (or ProRAW) capture + renders the full-precision darkroom print
-              func capture12BitRAWAndDevelopPrint(
-                  recipe: DarkroomNegativeRecipe,
-                  renderedPrintSnapshot: UIImage?
-              ) {
-                  MechanicalHapticsAndMotion.shared.playMechanicalShutterRelease(shutterDurationSeconds: Double(recipe.shutterSpeedSeconds))
+              /// Crisp 1/3-stop anodized metal ball-bearing detent click for Aperture & Shutter Dials
+              func playApertureDetentClick(intensity: Float = 0.78, sharpness: Float = 0.92) {
+                  guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else { return }
+                  let event = CHHapticEvent(
+                      eventType: .hapticTransient,
+                      parameters: [
+                          CHHapticEventParameter(parameterID: .hapticIntensity, value: intensity),
+                          CHHapticEventParameter(parameterID: .hapticSharpness, value: sharpness)
+                      ],
+                      relativeTime: 0
+                  )
+                  playEvents([event])
+              }
           
-                  // Always archive the rendered print & sidecar recipe immediately for instant darkroom review
-                  if let printImg = renderedPrintSnapshot {
-                      DispatchQueue.main.async {
-                          self.latestCapturedPreviewImage = printImg
-                          self.capturedRollsCount += 1
-                      }
-                      saveDevelopedPrintAndRecipeToPhotoLibrary(dngData: nil, printImage: printImg, recipe: recipe)
+              /// Subtle damped grease resistance tick for manual focus helicoid ring
+              func playFocusHelicoidTick() {
+                  playApertureDetentClick(intensity: 0.38, sharpness: 0.45)
+              }
+          
+              /// Two-stage mechanical focal-plane curtain shutter (Front curtain release + exposure delay + Rear curtain thud)
+              func playMechanicalShutterRelease(shutterDurationSeconds: Double) {
+                  guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else { return }
+                  let clampedDelay = min(max(shutterDurationSeconds, 0.012), 1.5)
+                  let frontCurtain = CHHapticEvent(
+                      eventType: .hapticTransient,
+                      parameters: [
+                          CHHapticEventParameter(parameterID: .hapticIntensity, value: 0.95),
+                          CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.88)
+                      ],
+                      relativeTime: 0.0
+                  )
+                  let mirrorDamp = CHHapticEvent(
+                      eventType: .hapticContinuous,
+                      parameters: [
+                          CHHapticEventParameter(parameterID: .hapticIntensity, value: 0.35),
+                          CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.25)
+                      ],
+                      relativeTime: 0.008,
+                      duration: 0.035
+                  )
+                  let rearCurtain = CHHapticEvent(
+                      eventType: .hapticTransient,
+                      parameters: [
+                          CHHapticEventParameter(parameterID: .hapticIntensity, value: 1.0),
+                          CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.62)
+                      ],
+                      relativeTime: clampedDelay
+                  )
+                  playEvents([frontCurtain, mirrorDamp, rearCurtain])
+              }
+          
+              /// Ratcheting brass gear train sensation when winding the film advance lever
+              func playFilmAdvanceLeverWind() {
+                  guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else { return }
+                  var events: [CHHapticEvent] = []
+                  for i in 0..<8 {
+                      let t = TimeInterval(i) * 0.032
+                      let progress = Float(i) / 7.0
+                      let ev = CHHapticEvent(
+                          eventType: .hapticTransient,
+                          parameters: [
+                              CHHapticEventParameter(parameterID: .hapticIntensity, value: 0.45 + 0.45 * progress),
+                              CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.70 + 0.25 * progress)
+                          ],
+                          relativeTime: t
+                      )
+                      events.append(ev)
                   }
+                  playEvents(events)
+              }
           
-                  sessionQueue.async {
-                      guard self.captureSession.isRunning else { return }
-                      self.photoOutput.isAppleProRAWEnabled = self.photoOutput.isAppleProRAWSupported && !self.usePureBayerRAWOverProRAW
-          
-                      let availableRAW = self.photoOutput.availableRawPhotoPixelFormatTypes
-                      let photoSettings: AVCapturePhotoSettings
-          
-                      if let selectedRAWFormat = availableRAW.first(where: {
-                          self.usePureBayerRAWOverProRAW ? !AVCapturePhotoOutput.isAppleProRAWPixelFormat($0) : AVCapturePhotoOutput.isAppleProRAWPixelFormat($0)
-                      }) ?? availableRAW.first {
-                          photoSettings = AVCapturePhotoSettings(
-                              rawPixelFormatType: selectedRAWFormat,
-                              processedFormat: [AVVideoCodecKey: AVVideoCodecType.hevc]
-                          )
-                      } else {
-                          photoSettings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.hevc])
-                      }
-          
-                      // Disable ISP multi-frame smoothing to preserve authentic photon shot statistics
-                      photoSettings.isAutoStillImageStabilizationEnabled = false
-                      photoSettings.photoQualityPrioritization = .quality
-          
-                      let processor = RAWPhotoCaptureProcessor(uid: photoSettings.uniqueID) { [weak self] dngData in
-                          guard let self = self else { return }
-                          self.inFlightPhotoDelegates.removeValue(forKey: photoSettings.uniqueID)
-                          if let dng = dngData {
-                              self.saveDNGNegativeToDocuments(dngData: dng, recipe: recipe)
-                          }
-                      }
-                      self.inFlightPhotoDelegates[photoSettings.uniqueID] = processor
-                      self.photoOutput.capturePhoto(with: photoSettings, delegate: processor)
+              private func playEvents(_ events: [CHHapticEvent]) {
+                  guard let engine = hapticEngine else { return }
+                  do {
+                      try engine.start()
+                      let pattern = try CHHapticPattern(events: events, parameters: [])
+                      let player = try engine.makePlayer(with: pattern)
+                      try player.start(atTime: CHHapticTimeImmediate)
+                  } catch {
+                      // Silently ignore if engine is temporarily preempted
                   }
               }
           
-              private func saveDNGNegativeToDocuments(dngData: Data, recipe: DarkroomNegativeRecipe) {
-                  let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-                  let baseName = "Negative_\(Int(recipe.captureTimestamp.timeIntervalSince1970))"
-                  let dngURL = docs.appendingPathComponent("\(baseName).dng")
-                  let sidecarURL = docs.appendingPathComponent("\(baseName).json")
-                  try? dngData.write(to: dngURL, options: .atomic)
-                  if let jsonData = try? JSONEncoder().encode(recipe) {
-                      try? jsonData.write(to: sidecarURL, options: .atomic)
-                  }
-              }
-          
-              private func saveDevelopedPrintAndRecipeToPhotoLibrary(dngData: Data?, printImage: UIImage, recipe: DarkroomNegativeRecipe) {
-                  // Also persist the non-destructive JSON sidecar recipe to Documents
-                  let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-                  let sidecarURL = docs.appendingPathComponent("Recipe_\(recipe.id.uuidString).json")
-                  if let jsonData = try? JSONEncoder().encode(recipe) {
-                      try? jsonData.write(to: sidecarURL, options: .atomic)
-                  }
-          
-                  PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
-                      guard status == .authorized || status == .limited else { return }
-                      PHPhotoLibrary.shared().performChanges({
-                          let creationRequest = PHAssetCreationRequest.forAsset()
-                          if let pngData = printImage.pngData() {
-                              creationRequest.addResource(with: .photo, data: pngData, options: nil)
-                          }
-                          if let rawDNG = dngData {
-                              let rawOptions = PHAssetResourceCreationOptions()
-                              rawOptions.originalFilename = "HalideLab_12Bit.dng"
-                              creationRequest.addResource(with: .alternatePhoto, data: rawDNG, options: rawOptions)
-                          }
-                      }, completionHandler: nil)
+              private func startGyroscopeHorizonUpdates() {
+                  guard motionManager.isDeviceMotionAvailable else { return }
+                  motionManager.deviceMotionUpdateInterval = 1.0 / 60.0
+                  motionManager.startDeviceMotionUpdates(to: .main) { [weak self] motion, _ in
+                      guard let self = self, let attitude = motion?.attitude else { return }
+                      let degRoll = attitude.roll * 180.0 / .pi
+                      let degPitch = (attitude.pitch + (.pi / 2.0)) * 180.0 / .pi
+                      self.rollDegrees = degRoll
+                      self.pitchDegrees = degPitch
+                      self.isLevelAligned = abs(degRoll) < 0.8 && abs(degPitch) < 1.2
                   }
               }
           }
-          
-          extension CameraCapturePipeline: AVCaptureVideoDataOutputSampleBufferDelegate, AVCaptureDataOutputSynchronizerDelegate {
-              func dataOutputSynchronizer(
-                  _ synchronizer: AVCaptureDataOutputSynchronizer,
-                  didOutput synchronizedDataCollection: AVCaptureSynchronizedDataCollection
-              ) {
-                  if let syncedVideo = synchronizedDataCollection.synchronizedData(for: videoDataOutput) as? AVCaptureSynchronizedSampleBufferData,
-                     !syncedVideo.sampleBufferWasDropped,
-                     let pixelBuffer = CMSampleBufferGetImageBuffer(syncedVideo.sampleBuffer) {
-                      updateCameraMetalTexture(from: pixelBuffer)
-                  }
-          
-                  if let syncedDepth = synchronizedDataCollection.synchronizedData(for: depthDataOutput) as? AVCaptureSynchronizedDepthData,
-                     !syncedDepth.depthDataWasDropped {
-                      let convertedDepth = syncedDepth.depthData.converting(toDepthDataType: kCVPixelFormatType_DepthFloat32)
-                      updateDepthMetalTexture(from: convertedDepth.depthDataMap)
-                  }
-              }
-          
-              func captureOutput(
-                  _ output: AVCaptureOutput,
-                  didOutput sampleBuffer: CMSampleBuffer,
-                  from connection: AVCaptureConnection
-              ) {
-                  guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-                  updateCameraMetalTexture(from: pixelBuffer)
-              }
-          
-              private func updateCameraMetalTexture(from pixelBuffer: CVPixelBuffer) {
-                  guard let cache = textureCache else { return }
-                  let width = CVPixelBufferGetWidth(pixelBuffer)
-                  let height = CVPixelBufferGetHeight(pixelBuffer)
-                  var cvTexOut: CVMetalTexture?
-                  let status = CVMetalTextureCacheCreateTextureFromImage(
-                      kCFAllocatorDefault,
-                      cache,
-                      pixelBuffer,
-                      nil,
-                      .bgra8Unorm,
-                      width,
-                      height,
-                      0,
-                      &cvTexOut
-                  )
-                  if status == kCVReturnSuccess, let cvTex = cvTexOut, let mtlTex = CVMetalTextureGetTexture(cvTex) {
-                      textureLock.lock()
-                      _latestCameraTexture = mtlTex
-                      textureLock.unlock()
-                  }
-              }
-          
-              private func updateDepthMetalTexture(from depthBuffer: CVPixelBuffer) {
-                  guard let cache = textureCache else { return }
-                  let width = CVPixelBufferGetWidth(depthBuffer)
-                  let height = CVPixelBufferGetHeight(depthBuffer)
-                  var cvTexOut: CVMetalTexture?
-                  let status = CVMetalTextureCacheCreateTextureFromImage(
-                      kCFAllocatorDefault,
-                      cache,
-                      depthBuffer,
-                      nil,
-                      .r32Float,
-                      width,
-                      height,
-                      0,
-                      &cvTexOut
-                  )
-                  if status == kCVReturnSuccess, let cvTex = cvTexOut, let mtlTex = CVMetalTextureGetTexture(cvTex) {
-                      textureLock.lock()
-                      _latestDepthTexture = mtlTex
-                      textureLock.unlock()
-                  }
-              }
+          EOF_HALIDE_FILE
+
+          cat << 'EOF_HALIDE_FILE' > "HalideLabPro/Resources/Assets.xcassets/Contents.json"
+          {
+            "info" : {
+              "author" : "xcode",
+              "version" : 1
+            }
           }
-          
-          private final class RAWPhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
-              let uid: Int64
-              private let completion: (Data?) -> Void
-              private var capturedDNGData: Data?
-          
-              init(uid: Int64, completion: @escaping (Data?) -> Void) {
-                  self.uid = uid
-                  self.completion = completion
+          EOF_HALIDE_FILE
+
+          cat << 'EOF_HALIDE_FILE' > "HalideLabPro/Resources/Assets.xcassets/AppIcon.appiconset/Contents.json"
+          {
+            "images" : [
+              {
+                "idiom" : "universal",
+                "platform" : "ios",
+                "size" : "1024x1024"
               }
-          
-              func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
-                  if photo.isRawPhoto {
-                      capturedDNGData = photo.fileDataRepresentation()
-                  }
-              }
-          
-              func photoOutput(_ output: AVCapturePhotoOutput, didFinishCaptureFor resolvedSettings: AVCaptureResolvedPhotoSettings, error: Error?) {
-                  completion(capturedDNGData)
-              }
+            ],
+            "info" : {
+              "author" : "xcode",
+              "version" : 1
+            }
           }
           EOF_HALIDE_FILE
 
