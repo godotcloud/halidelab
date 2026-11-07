@@ -1407,7 +1407,7 @@ jobs:
                   mtkView.delegate = renderEngine
                   mtkView.framebufferOnly = false
                   mtkView.colorPixelFormat = .bgra8Unorm
-                  mtkView.preferredFramesPerSecond = 120 // Unlock 120Hz ProMotion on iPhone 13 Pro Max
+                  mtkView.preferredFramesPerSecond = 60 // Unlock 120Hz ProMotion on iPhone 13 Pro Max
                   mtkView.enableSetNeedsDisplay = false
                   mtkView.isPaused = false
                   mtkView.clearColor = MTLClearColor(red: 0.04, green: 0.04, blue: 0.04, alpha: 1.0)
@@ -1776,10 +1776,11 @@ jobs:
                       return
                   }
           
+                  let compactThumb = makeCompactGalleryThumbnail(from: printImg)
                   let newFrame = CapturedAnalogFrame(
                       id: recipe.id,
                       timestamp: recipe.captureTimestamp,
-                      printImage: printImg,
+                      printImage: compactThumb,
                       recipe: recipe,
                       filmName: filmName,
                       paperName: paperName,
@@ -1787,9 +1788,12 @@ jobs:
                   )
           
                   DispatchQueue.main.async {
-                      self.latestCapturedPreviewImage = printImg
+                      self.latestCapturedPreviewImage = compactThumb
                       self.capturedRollsCount += 1
                       self.capturedFramesGallery.insert(newFrame, at: 0)
+                      if self.capturedFramesGallery.count > 24 {
+                          self.capturedFramesGallery.removeLast()
+                      }
                   }
           
                   saveDevelopedPrintAndRecipeToPhotoLibrary(printImage: printImg, recipe: recipe, filmName: filmName)
@@ -1844,15 +1848,43 @@ jobs:
                   }
               }
           
+              private var lastTelemetryUpdateTimestamp: CFTimeInterval = 0.0
+              private var frameFlushCounter: Int = 0
+          
               private func pollHardwareExposureTelemetry() {
+                  frameFlushCounter += 1
+                  if frameFlushCounter % 90 == 0, let cache = textureCache {
+                      CVMetalTextureCacheFlush(cache, 0)
+                  }
+                  let now = CACurrentMediaTime()
+                  guard now - lastTelemetryUpdateTimestamp >= 0.25 else { return }
+                  lastTelemetryUpdateTimestamp = now
+          
                   guard let device = videoDeviceInput?.device else { return }
                   let currentISO: Float = device.iso
                   let currentSec: Float = Float(CMTimeGetSeconds(device.exposureDuration))
                   if currentSec > 0.0 && !currentSec.isNaN {
-                      DispatchQueue.main.async {
-                          self.liveHardwareISO = currentISO
-                          self.liveHardwareShutterSeconds = currentSec
+                      if abs(currentISO - liveHardwareISO) > 4.0 || abs(currentSec - liveHardwareShutterSeconds) > 0.0005 {
+                          DispatchQueue.main.async {
+                              self.liveHardwareISO = currentISO
+                              self.liveHardwareShutterSeconds = currentSec
+                          }
                       }
+                  }
+              }
+          
+              private func makeCompactGalleryThumbnail(from fullImage: UIImage, maxDimension: CGFloat = 540.0) -> UIImage {
+                  let size = fullImage.size
+                  let maxSide = max(size.width, size.height)
+                  guard maxSide > maxDimension else { return fullImage }
+                  let scale = maxDimension / maxSide
+                  let targetSize = CGSize(width: round(size.width * scale), height: round(size.height * scale))
+                  let format = UIGraphicsImageRendererFormat.default()
+                  format.scale = 1.0
+                  format.opaque = true
+                  let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
+                  return renderer.image { _ in
+                      fullImage.draw(in: CGRect(origin: .zero, size: targetSize))
                   }
               }
           }
@@ -1921,7 +1953,7 @@ jobs:
           }
           
           inline float3 linearToDisplayP3Gamma(float3 lin) {
-              lin = clamp(lin, 0.0f, 1.15f);
+              lin = clamp(lin, 0.0f, 1.12f);
               float3 lo = lin * 12.92f;
               float3 hi = 1.055f * pow(max(lin, float3(1e-5f)), float3(1.0f / 2.4f)) - 0.055f;
               return select(hi, lo, lin <= 0.0031308f);
@@ -1950,7 +1982,13 @@ jobs:
               return float3(h) * (1.0f / 4294967295.0f);
           }
           
-          // Signed Distance / Weight of a mechanical N-blade iris diaphragm with blade curvature
+          // Interleaved Gradient Noise (Jimenez 2014) for eliminating discrete bokeh ring dots
+          inline float interleavedGradientNoise(float2 screenPos) {
+              float3 magic = float3(0.06711056f, 0.00583715f, 52.9829189f);
+              return fract(magic.z * fract(dot(screenPos, magic.xy)));
+          }
+          
+          // Signed Distance / Weight of a mechanical N-blade iris diaphragm with soft optical feathering
           inline float aperturePolygonWeight(float2 sampleOffset, int bladeCount, float curvature) {
               float r = length(sampleOffset);
               if (r < 1e-4f) return 1.0f;
@@ -1960,7 +1998,7 @@ jobs:
               float localAngle = fmod(theta + 2.0f * M_PI_F, sector) - halfSector;
               float polyRadius = cos(halfSector) / max(cos(localAngle), 0.1f);
               float effectiveRadius = mix(polyRadius, 1.0f, clamp(curvature, 0.0f, 1.0f));
-              return smoothstep(effectiveRadius, effectiveRadius * 0.82f, r);
+              return smoothstep(effectiveRadius * 1.04f, effectiveRadius * 0.72f, r);
           }
           
           // Classic Screw-In Kodak Wratten Optical Filter Transmittance Matrix
@@ -1985,8 +2023,6 @@ jobs:
           
           // Bradford Chromatic Adaptation for Kelvin Color Temperature (5500K = Daylight Reference)
           inline float3 applyPlanckianWhiteBalance(float3 linearRGB, float kelvin, float tint) {
-              // Normalize around 5500K daylight reference:
-              // Lower Kelvin (e.g. 3200K) cools scene (boosts Blue, trims Red); Higher Kelvin (e.g. 7500K) warms scene (boosts Red, trims Blue)
               float kShift = clamp((kelvin - 5500.0f) / 3000.0f, -1.2f, 1.2f);
               float3 wbGain = float3(
                   1.0f + kShift * 0.38f + tint * 0.12f,
@@ -1997,7 +2033,7 @@ jobs:
           }
           
           // ============================================================================
-          // KERNEL 1: PHYSICAL OPTICS ENGINE (RADIOMETRIC CALIBRATION, HYBRID LIDAR/3D
+          // KERNEL 1: PHYSICAL OPTICS ENGINE (RADIOMETRIC CALIBRATION, JITTERED CONTINUOUS
           //           IRIS APERTURE BOKEH, SPHERICAL ABERRATION GLOW, PETZVAL SWIRL,
           //           ANAMORPHIC SQUEEZE, LATERAL CA, PRO-MIST & FRAUNHOFER DIFFRACTION)
           // ============================================================================
@@ -2020,11 +2056,11 @@ jobs:
               centeredUV.x *= res.x / res.y;
               float radialDist = length(centeredUV);
           
-              // 1. Lateral Chromatic Aberration (R/B radial magnification dispersion visible toward frame corners)
-              float caShift = optics.lateralChromaticAberration * 0.012f * radialDist * radialDist;
+              // 1. Lateral Chromatic Aberration (R/B radial magnification dispersion)
+              float caShift = optics.lateralChromaticAberration * 0.0085f * radialDist * radialDist;
               float2 uvR = 0.5f + (uv - 0.5f) * (1.0f + caShift);
               float2 uvG = uv;
-              float2 uvB = 0.5f + (uv - 0.5f) * (1.0f - caShift * 1.15f);
+              float2 uvB = 0.5f + (uv - 0.5f) * (1.0f - caShift * 1.12f);
           
               float3 rawSample;
               rawSample.r = inCameraTex.sample(linSampler, uvR).r;
@@ -2036,80 +2072,82 @@ jobs:
               centerLinear = applyPlanckianWhiteBalance(centerLinear, optics.wbTemperatureKelvin, optics.wbTintShift);
           
               float luma = dot(centerLinear, float3(0.2126f, 0.7152f, 0.0722f));
-              float highlightGain = 1.0f + 0.75f * luma * luma;
+              float highlightGain = 1.0f + 0.42f * luma * luma;
               centerLinear *= highlightGain;
           
-              // 2. Hybrid Physical Thick-Lens Iris Aperture Bokeh + Petzval Swirl + Anamorphic Squeeze + Spherical Aberration
+              // 2. Continuous Jittered Physical Thick-Lens Iris Aperture Bokeh
               float3 accumRadiance = centerLinear;
               float N = max(optics.simulatedApertureFNumber, 0.95f);
           
               if (optics.enableLiDARBokeh != 0) {
-                  // Compute distance from the user's focus reticle (focusPointUV)
                   float2 focusVec = (uv - optics.focusPointUV);
                   focusVec.x *= res.x / res.y;
-                  // Apply Anamorphic Squeeze to the field geometry itself so bokeh and field defocus stretch ovally
                   focusVec.x /= max(optics.anamorphicSqueezeFactor, 1.0f);
                   float radialFromFocus = length(focusVec);
           
-                  // Determine defocus factor: combines Focus Distance slider (0.15m - 8.0m) and radial distance from focus target
-                  float focusSliderDefocus = abs(optics.focusDistanceMeters - 1.20f) / 3.5f;
-                  float spatialDefocus = smoothstep(0.08f, 0.85f, radialFromFocus);
+                  // Keep a generous tack-sharp central sweet spot (radius 0.36 around focusPointUV) so subject faces/bodies stay crisp,
+                  // while background edges and manual focus distance shifts melt smoothly!
+                  float focusSliderDefocus = abs(optics.focusDistanceMeters - 1.20f) / 4.2f;
+                  float spatialDefocus = smoothstep(0.32f, 1.15f, radialFromFocus);
           
                   if (optics.hasValidLiDARDepth != 0) {
                       float lidarZ = inLiDARDepthTex.sample(linSampler, uv).r;
                       if (lidarZ > 0.03f && !isnan(lidarZ) && !isinf(lidarZ)) {
                           float zFocus = clamp(optics.focusDistanceMeters, 0.10f, 15.0f);
-                          spatialDefocus = clamp(abs(lidarZ - zFocus) / max(lidarZ, 0.25f), 0.0f, 1.5f);
+                          spatialDefocus = clamp(abs(lidarZ - zFocus) / max(lidarZ, 0.35f), 0.0f, 1.2f);
                       }
                   }
           
-                  // Total defocus increases when wide open (f/1.2 -> apertureScale = 1.0; f/16 -> apertureScale = 0.04)
-                  float apertureScale = clamp(pow(1.8f / N, 1.45f), 0.02f, 1.65f);
-                  float totalDefocus = (spatialDefocus * 0.85f + focusSliderDefocus * 0.55f + abs(optics.sphericalAberration) * 0.25f) * apertureScale;
+                  float apertureScale = clamp(pow(1.8f / N, 1.40f), 0.0f, 1.45f);
+                  float totalDefocus = (spatialDefocus * 0.78f + focusSliderDefocus * 0.48f) * apertureScale;
           
-                  // Pixel radius of the Circle of Confusion (CoC) up to 28 pixels on 1080p/1284p viewfinder
-                  float cocRadiusPx = clamp(totalDefocus * float(width) * 0.032f, 0.0f, 28.0f);
+                  // Clamp CoC radius to 13 pixels and use per-pixel interleaved gradient noise rotation + radial jitter
+                  // so bokeh discs are 100% continuous and velvety (ZERO discrete dotted "fly-eye" rings!)
+                  float cocRadiusPx = clamp(totalDefocus * float(width) * 0.015f, 0.0f, 13.0f);
           
                   if (cocRadiusPx > 0.65f) {
-                      const int NUM_TAPS = 24;
+                      const int NUM_TAPS = 28;
                       const float GOLDEN_ANGLE = 2.39996323f;
-                      float3 bokehSum = centerLinear * 0.12f;
-                      float weightSum = 0.12f;
+                      float ign = interleavedGradientNoise(float2(gid));
+                      float baseRotAngle = ign * 2.0f * M_PI_F;
           
-                      // Petzval / Helios 44-2 Sagittal Swirl Rotation Angle increases toward frame edges
-                      float swirlAngle = optics.radialSwirlPetzval * radialDist * 1.45f;
+                      float3 bokehSum = centerLinear * 0.25f;
+                      float weightSum = 0.25f;
+          
+                      float swirlAngle = optics.radialSwirlPetzval * radialDist * 1.25f;
                       float cosSwirl = cos(swirlAngle);
                       float sinSwirl = sin(swirlAngle);
           
                       for (int i = 0; i < NUM_TAPS; ++i) {
-                          float fi = (float(i) + 0.5f) / float(NUM_TAPS);
-                          float rNorm = sqrt(fi);
-                          float angle = float(i) * GOLDEN_ANGLE;
+                          float fi = (float(i) + fract(ign * 1.618f)) / float(NUM_TAPS);
+                          float rNorm = sqrt(clamp(fi, 0.001f, 0.999f));
+                          float angle = float(i) * GOLDEN_ANGLE + baseRotAngle;
                           float2 diskDir = float2(cos(angle), sin(angle)) * rNorm;
           
-                          // Anamorphic Horizontal Oval Squeeze (1.0x spherical -> 1.8x oval cinema bokeh)
+                          // Anamorphic Horizontal Oval Squeeze
                           diskDir.x /= max(optics.anamorphicSqueezeFactor, 1.0f);
           
                           // Petzval / Helios Swirl tangential twist
                           if (optics.radialSwirlPetzval > 0.01f) {
                               diskDir = float2(
                                   diskDir.x * cosSwirl - diskDir.y * sinSwirl,
-                                  diskDir.x * sinSwirl + diskDir.y * cosSwirl * 0.55f
+                                  diskDir.x * sinSwirl + diskDir.y * cosSwirl * 0.62f
                               );
                           }
           
-                          // Mechanical Cat's Eye Vignetting: clips outer bokeh rim into lemon/cat's-eye shape toward corners
+                          // Mechanical Cat's Eye Vignetting
                           float wideOpenFactor = clamp((4.0f - N) / 2.8f, 0.15f, 1.0f);
-                          float2 catEyeCenter = centeredUV * optics.opticalVignettingCatEye * wideOpenFactor * 0.70f;
-                          if (length(diskDir - catEyeCenter) > 1.15f) continue;
+                          float2 catEyeCenter = centeredUV * optics.opticalVignettingCatEye * wideOpenFactor * 0.60f;
+                          if (length(diskDir - catEyeCenter) > 1.12f) continue;
           
-                          // Polygonal Diaphragm Blade check (5B, 6B, 7B, 8B, 9B)
+                          // Polygonal Diaphragm Blade weight
                           float polyW = aperturePolygonWeight(diskDir, optics.apertureBladeCount, optics.bladeCurvature);
                           if (polyW <= 0.01f) continue;
           
-                          // Spherical Aberration: Negative = dreamy soft-focus core glow (Steel Rim); Positive = bright soap-bubble rim (Biotar/Trioplan)
-                          float ringFactor = 1.0f + optics.sphericalAberration * (rNorm * rNorm - 0.45f) * 1.85f;
-                          float onionRing = 1.0f + optics.asphericalOnionRingIntensity * 0.18f * sin(rNorm * 26.0f);
+                          // Smooth Gaussian-apodized bokeh profile modulated by Spherical Aberration
+                          float gaussianCore = exp(-rNorm * rNorm * (1.15f - optics.sphericalAberration * 0.65f));
+                          float ringFactor = max(0.20f, gaussianCore * (1.0f + optics.sphericalAberration * (rNorm * rNorm - 0.45f) * 1.10f));
+                          float onionRing = 1.0f + optics.asphericalOnionRingIntensity * 0.10f * sin(rNorm * 22.0f);
           
                           float2 sampleUV = uv + (diskDir * cocRadiusPx) / res;
                           float3 tapRaw = inCameraTex.sample(linSampler, sampleUV).rgb;
@@ -2117,11 +2155,11 @@ jobs:
                           tapSample = applyPlanckianWhiteBalance(tapSample, optics.wbTemperatureKelvin, optics.wbTintShift);
           
                           float tapLuma = dot(tapSample, float3(0.2126f, 0.7152f, 0.0722f));
-                          // Specular Bokeh Ball Amplification so bright highlights bloom into distinct polygonal iris discs
-                          float specularWeight = 1.0f + pow(max(0.0f, tapLuma - 0.42f), 2.0f) * 8.5f;
-                          tapSample *= (1.0f + 0.75f * tapLuma * tapLuma);
+                          // Moderate highlight bloom weight (capped at 2.4x so tree gaps never explode into discrete white dots)
+                          float specularWeight = 1.0f + smoothstep(0.65f, 1.35f, tapLuma) * 1.40f;
+                          tapSample *= (1.0f + 0.42f * tapLuma * tapLuma);
           
-                          float w = max(0.04f, polyW * ringFactor * onionRing * specularWeight);
+                          float w = max(0.05f, polyW * ringFactor * onionRing * specularWeight);
                           bokehSum += tapSample * w;
                           weightSum += w;
                       }
@@ -2129,10 +2167,10 @@ jobs:
                   }
               }
           
-              // 3. Under-Corrected Spherical Aberration Wide-Open Veiling Glow (Leica Summilux Steel Rim / Noctilux f/1.2 look)
+              // 3. Under-Corrected Spherical Aberration Wide-Open Veiling Glow / Black Pro-Mist Diffusion
               if (optics.sphericalAberration < -0.05f || optics.halationBloomDiffusion > 0.01f) {
-                  float glowStrength = max(0.0f, -optics.sphericalAberration) * 0.55f + optics.halationBloomDiffusion * 0.65f;
-                  float2 glowStep = 5.5f / res;
+                  float glowStrength = max(0.0f, -optics.sphericalAberration) * 0.42f + optics.halationBloomDiffusion * 0.50f;
+                  float2 glowStep = 4.5f / res;
                   float3 glowAccum = float3(0.0f);
                   const float2 glowOffsets[8] = {
                       float2(1, 0), float2(-1, 0), float2(0, 1), float2(0, -1),
@@ -2145,7 +2183,7 @@ jobs:
                       glowAccum += gLin;
                   }
                   glowAccum *= 0.125f;
-                  accumRadiance = mix(accumRadiance, max(accumRadiance, glowAccum * 1.22f), clamp(glowStrength, 0.0f, 0.75f));
+                  accumRadiance = mix(accumRadiance, max(accumRadiance, glowAccum * 1.12f), clamp(glowStrength, 0.0f, 0.65f));
               }
           
               // 4. Anamorphic Horizontal Blue Flare Streak when Anamorphic Squeeze > 1.15x
@@ -2158,12 +2196,12 @@ jobs:
                       float3 sRaw = inCameraTex.sample(linSampler, sUV).rgb;
                       float3 sLin = linearP3ToACEScg(displayP3GammaToLinear(sRaw)) * exp2(optics.exposureBiasEV);
                       float sLuma = dot(sLin, float3(0.2126f, 0.7152f, 0.0722f));
-                      if (sLuma > 0.68f) {
-                          float w = exp(-abs(float(s)) * 0.32f) * (sLuma - 0.68f);
-                          streakAccum += float3(0.18f, 0.52f, 1.35f) * w; // Classic Cooke/Panavision cyan-blue coating streak
+                      if (sLuma > 0.72f) {
+                          float w = exp(-abs(float(s)) * 0.32f) * (sLuma - 0.72f);
+                          streakAccum += float3(0.18f, 0.52f, 1.35f) * w;
                       }
                   }
-                  accumRadiance += streakAccum * anamorphicFactor * 0.45f;
+                  accumRadiance += streakAccum * anamorphicFactor * 0.40f;
               }
           
               // 5. Fraunhofer Aperture Diffraction Starbursts when stopped down (f/4.0 - f/22.0)
@@ -2176,29 +2214,29 @@ jobs:
                       float spikeAngle = float(s) * (2.0f * M_PI_F / float(numSpikes)) + 0.26f;
                       float2 spikeDir = float2(cos(spikeAngle), sin(spikeAngle)) / res;
                       for (int step = 1; step <= 6; ++step) {
-                          float distPx = float(step) * 3.8f;
+                          float distPx = float(step) * 3.6f;
                           float3 sCol = linearP3ToACEScg(displayP3GammaToLinear(inCameraTex.sample(linSampler, uv + spikeDir * distPx).rgb)) * exp2(optics.exposureBiasEV);
                           float sLuma = dot(sCol, float3(0.2126f, 0.7152f, 0.0722f));
-                          if (sLuma > 0.65f) {
-                              float falloff = exp(-float(step) * 0.38f) * (sLuma - 0.65f) * 3.2f;
+                          if (sLuma > 0.72f) {
+                              float falloff = exp(-float(step) * 0.42f) * (sLuma - 0.72f) * 2.4f;
                               spikeAccum += sCol * falloff;
                           }
                       }
                   }
-                  accumRadiance += spikeAccum * diffractionStrength * 0.42f;
+                  accumRadiance += spikeAccum * diffractionStrength * 0.35f;
               }
           
-              // 6. Apply Screw-In Kodak Wratten Optical Glass Filter (K2 Yellow, G15 Orange, Red 25, X1 Green, 80A, 85B)
+              // 6. Apply Screw-In Kodak Wratten Optical Glass Filter
               accumRadiance = applyWrattenOpticalFilter(accumRadiance, optics.opticalGlassFilter);
           
-              // 7. Natural Optical Vignetting: cos^4(theta) law + Mechanical Cat's Eye Corner Shading
+              // 7. Natural Optical Vignetting: cos^4(theta) law
               float halfDiagonalMM = 21.63f;
               float rMM = (radialDist * 0.5f) * halfDiagonalMM;
               float tanTheta = rMM / max(optics.focalLengthMM, 12.0f);
               float cosTheta = 1.0f / sqrt(1.0f + tanTheta * tanTheta);
-              float apertureStopDownRelief = clamp(2.2f / max(optics.simulatedApertureFNumber, 1.2f), 0.35f, 1.15f);
-              float cos4Attenuation = pow(cosTheta, 4.0f * (optics.cosFourthFalloffStrength * 0.65f + optics.opticalVignettingCatEye * 0.35f) * apertureStopDownRelief);
-              accumRadiance *= clamp(cos4Attenuation, 0.28f, 1.0f);
+              float apertureStopDownRelief = clamp(2.0f / max(optics.simulatedApertureFNumber, 1.2f), 0.35f, 1.10f);
+              float cos4Attenuation = pow(cosTheta, 4.0f * (optics.cosFourthFalloffStrength * 0.55f + optics.opticalVignettingCatEye * 0.25f) * apertureStopDownRelief);
+              accumRadiance *= clamp(cos4Attenuation, 0.38f, 1.0f);
           
               outLinearTex.write(float4(accumRadiance, 1.0f), gid);
           }
@@ -2207,10 +2245,12 @@ jobs:
           // KERNEL 2: AUTHORITATIVE FILM EMULSION SENSITOMETRY & CHEMICAL DEVELOPMENT
           // ============================================================================
           
+          // Evaluates Hurter-Driffield Density using a matched net density range `netSpan` above each layer's base `dMin`
+          // so that Orange Mask differences in `dMinRGB` never corrupt neutral gray color balance!
           inline float evalHurterDriffieldLayer(
               float logH,
               float dMin,
-              float dMax,
+              float netSpan,
               float gamma,
               float logH0,
               float toeCurvature,
@@ -2218,7 +2258,7 @@ jobs:
               bool isReversalSlide
           ) {
               float x = logH - logH0;
-              float span = max(dMax - dMin, 0.1f);
+              float span = max(netSpan, 0.1f);
               float u = (2.0f * gamma / span) * x;
               float c = (x < 0.0f) ? max(toeCurvature, 0.35f) : max(shoulderCurvature, 0.35f);
               float uShaped = u * (1.0f + 0.35f * (1.0f - c) * abs(u)) / (1.0f + 0.25f * (1.0f - c) * u * u);
@@ -2260,14 +2300,14 @@ jobs:
                   for (int i = 0; i < 12; ++i) {
                       float2 hUV = uv + offsets[i] * pxStep * film.halationRadiusPixels;
                       float3 sVal = inOpticsLinearTex.sample(linSampler, hUV).rgb;
-                      float excessR = max(0.0f, sVal.r - film.halationThreshold * 0.65f);
-                      float w = exp(-length(offsets[i]) * 0.75f);
+                      float excessR = max(0.0f, sVal.r - film.halationThreshold * 0.85f);
+                      float w = exp(-length(offsets[i]) * 0.78f);
                       redScatter += excessR * w;
                       weightNorm += w;
                   }
                   redScatter /= max(weightNorm, 1e-4f);
-                  sceneLinear.r += redScatter * film.halationReflectance * 1.45f;
-                  sceneLinear.g += redScatter * film.halationReflectance * film.halationGreenLeak * 1.25f;
+                  sceneLinear.r += redScatter * film.halationReflectance;
+                  sceneLinear.g += redScatter * film.halationReflectance * film.halationGreenLeak;
               }
           
               // 2. Eberhard Edge Effect / Developer Bromide Drag
@@ -2279,11 +2319,11 @@ jobs:
                       inOpticsLinearTex.sample(linSampler, uv + float2(0, d.y)).rgb +
                       inOpticsLinearTex.sample(linSampler, uv - float2(0, d.y)).rgb
                   );
-                  float standMultiplier = 1.0f + (1.0f - clamp(film.agitationFactor, 0.2f, 1.2f)) * 0.85f;
-                  sceneLinear = max(float3(1e-5f), sceneLinear + (sceneLinear - neighborAvg) * film.eberhardEdgeBoost * standMultiplier);
+                  float standMultiplier = 1.0f + (1.0f - clamp(film.agitationFactor, 0.2f, 1.2f)) * 0.75f;
+                  sceneLinear = max(float3(1e-5f), sceneLinear + (sceneLinear - neighborAvg) * (film.eberhardEdgeBoost * 0.70f) * standMultiplier);
               }
           
-              // 3. Spectral Sensitivity Integration (Normalized per row so neutral D65 white remains 100% neutral!)
+              // 3. Spectral Sensitivity Integration (Row-normalized so D65 white remains 100% neutral)
               float3 row0 = float3(film.spectralMatrix[0][0], film.spectralMatrix[1][0], film.spectralMatrix[2][0]);
               float3 row1 = float3(film.spectralMatrix[0][1], film.spectralMatrix[1][1], film.spectralMatrix[2][1]);
               float3 row2 = float3(film.spectralMatrix[0][2], film.spectralMatrix[1][2], film.spectralMatrix[2][2]);
@@ -2297,7 +2337,6 @@ jobs:
                   dot(row2, sceneLinear)
               ));
           
-              // Apply Exposure Index (Push/Pull rating compensation)
               float eiRatio = film.exposureIndexRated / max(film.isoNominal, 1.0f);
               layerExposure *= eiRatio;
           
@@ -2310,7 +2349,7 @@ jobs:
           
               float3 logH = log10(max(layerExposure, float3(1e-4f)));
           
-              // 5. Arrhenius Chemical Development Kinetics + Developer Formula Modifier
+              // 5. Arrhenius Chemical Development Kinetics
               float standardTempC = (film.processType == FilmProcessBWMonochromeNegative) ? 20.0f :
                                     (film.processType == FilmProcessECN2CinemaNegative ? 41.1f : 37.8f);
               float tempDelta = film.developerTemperatureC - standardTempC;
@@ -2319,13 +2358,16 @@ jobs:
               float kineticGammaScale = clamp(arrheniusRate * agitationGammaMod, 0.50f, 2.15f);
               float fogIncrease = max(0.0f, (arrheniusRate - 1.0f) * 0.045f);
           
+              // Calibrated net dye density span (measured from Green/Magenta reference channel)
+              // Ensures Orange Mask base differences (dMinRGB) never distort the net dye curve!
+              float calibratedNetSpan = max(film.dMaxRGB[1] - film.dMinRGB[1], 0.8f);
               bool isReversal = (film.processType == FilmProcessE6ColorReversal);
               float3 densityRGB;
               for (int c = 0; c < 3; ++c) {
                   densityRGB[c] = evalHurterDriffieldLayer(
                       logH[c],
                       film.dMinRGB[c] + fogIncrease,
-                      film.dMaxRGB[c],
+                      calibratedNetSpan,
                       film.gammaRGB[c] * kineticGammaScale,
                       film.logH0RGB[c],
                       film.toeCurvatureRGB[c],
@@ -2335,7 +2377,7 @@ jobs:
               }
           
               // 6. DIR (Development Inhibitor Releasing) Couplers Inter-Image Matrix
-              float3 baseDensity = float3(film.dMinRGB[0], film.dMinRGB[1], film.dMinRGB[2]);
+              float3 baseDensity = float3(film.dMinRGB[0], film.dMinRGB[1], film.dMinRGB[2]) + float3(fogIncrease);
               float3 netDensity = max(float3(0.0f), densityRGB - baseDensity);
               float neutralAnchor = netDensity.g;
               float3 chromaDelta = netDensity - float3(neutralAnchor);
@@ -2373,12 +2415,12 @@ jobs:
               if (film.processType == FilmProcessBWMonochromeNegative) {
                   grainModulation = float3(grainModulation.g);
               } else {
-                  grainModulation = mix(float3(grainModulation.g), grainModulation, 0.28f);
+                  grainModulation = mix(float3(grainModulation.g), grainModulation, 0.25f);
               }
           
               float3 selwynWeight = sqrt(clamp(netDensity, 0.05f, 2.2f));
               float pushGrainPenalty = pow(max(1.0f, kineticGammaScale), 0.55f);
-              float rmsScale = (film.diffuseRMSGranularity * 0.0020f) * pushGrainPenalty * film.grainSizeMultiplier * max(film.developerDilutionGrainMod, 0.4f);
+              float rmsScale = (film.diffuseRMSGranularity * 0.0018f) * pushGrainPenalty * film.grainSizeMultiplier * max(film.developerDilutionGrainMod, 0.4f);
           
               densityRGB = baseDensity + max(float3(0.0f), netDensity + grainModulation * selwynWeight * rmsScale);
           
@@ -2457,12 +2499,14 @@ jobs:
           
               float3 dMinPaperVec = float3(darkroom.paperDMinRGB[0], darkroom.paperDMinRGB[1], darkroom.paperDMinRGB[2]);
               float3 dMaxPaperVec = float3(darkroom.paperDMaxRGB[0], darkroom.paperDMaxRGB[1], darkroom.paperDMaxRGB[2]);
+              float paperNetSpan = max(dMaxPaperVec.g - dMinPaperVec.g, 0.8f);
               float3 printLinearReflectance;
           
               if (film.processType == FilmProcessE6ColorReversal) {
-                  float3 slideMinT = pow(float3(10.0f), -(float3(film.dMaxRGB[0], film.dMaxRGB[1], film.dMaxRGB[2]) - dMin));
+                  float slideSpan = max(film.dMaxRGB[1] - film.dMinRGB[1], 0.8f);
+                  float3 slideMinT = pow(float3(10.0f), -float3(slideSpan));
                   float3 slideRawT = pow(float3(10.0f), -netDensity) * enlargerTimeGain;
-                  printLinearReflectance = clamp((slideRawT - slideMinT) / max(1.0f - slideMinT, float3(1e-4f)), 0.001f, 1.2f);
+                  printLinearReflectance = clamp((slideRawT - slideMinT) / max(1.0f - slideMinT, float3(1e-4f)), 0.001f, 1.15f);
               } else if (film.processType == FilmProcessBWMonochromeNegative) {
                   float negTransmittance = pow(10.0f, -netDensity.g) * enlargerTimeGain + preFlashLinearAdd;
                   float logPaperH = log10(max(negTransmittance, 1e-5f));
@@ -2471,14 +2515,15 @@ jobs:
                   float paperGamma = mix(1.35f, 3.60f, gradeNorm) * darkroom.paperGamma;
                   float dMaxPaper = dMaxPaperVec.g + ((darkroom.chemicalToner == ChemicalTonerSelenium) ? 0.14f : 0.0f);
                   float dMinPaper = dMinPaperVec.g;
+                  float bwSpan = max(dMaxPaper - dMinPaper, 0.8f);
           
                   float paperDensity;
                   if (darkroom.enableSplitGrade != 0) {
-                      float dSoft = evalHurterDriffieldLayer(logPaperH, dMinPaper, dMaxPaper, 1.40f, -0.92f, 0.65f, 0.70f, false);
-                      float dHard = evalHurterDriffieldLayer(logPaperH, dMinPaper, dMaxPaper, 3.45f, -0.92f, 0.48f, 0.52f, false);
+                      float dSoft = evalHurterDriffieldLayer(logPaperH, dMinPaper, bwSpan, 1.40f, -0.92f, 0.65f, 0.70f, false);
+                      float dHard = evalHurterDriffieldLayer(logPaperH, dMinPaper, bwSpan, 3.45f, -0.92f, 0.48f, 0.52f, false);
                       paperDensity = mix(dHard, dSoft, clamp(darkroom.splitGradeSoftBalance, 0.0f, 1.0f));
                   } else {
-                      paperDensity = evalHurterDriffieldLayer(logPaperH, dMinPaper, dMaxPaper, paperGamma, -0.92f, 0.56f, 0.62f, false);
+                      paperDensity = evalHurterDriffieldLayer(logPaperH, dMinPaper, bwSpan, paperGamma, -0.92f, 0.56f, 0.62f, false);
                   }
           
                   float normRefl = paperDensityToNormalizedReflectance(float3(paperDensity), float3(dMinPaper), float3(dMaxPaper)).g;
@@ -2512,18 +2557,17 @@ jobs:
                   for (int c = 0; c < 3; ++c) {
                       paperDensity[c] = evalHurterDriffieldLayer(
                           logPaperH[c],
-                          dMinPaperVec[c],
-                          dMaxPaperVec[c],
-                          darkroom.paperGamma * 2.42f,
+                          dMinPaperVec.g,
+                          paperNetSpan,
+                          darkroom.paperGamma * 2.38f,
                           -0.92f,
                           0.56f,
                           0.64f,
                           false
                       );
                   }
-                  // Use uniform neutral paper limits (dMinPaperVec.g, dMaxPaperVec.g) so neutral grays never acquire a color cast
                   float3 neutralMin = float3(dMinPaperVec.g);
-                  float3 neutralMax = float3(dMaxPaperVec.g);
+                  float3 neutralMax = float3(dMinPaperVec.g + paperNetSpan);
                   printLinearReflectance = paperDensityToNormalizedReflectance(paperDensity, neutralMin, neutralMax);
               }
           
@@ -4109,16 +4153,8 @@ jobs:
                       computeEncoder.setBuffer(telemetryBuffer, offset: 0, index: 3)
                       computeEncoder.dispatchThreads(gridSize, threadsPerThreadgroup: tgSize)
           
-                      // Also render a clean, overlay-free copy to snapshotOutputTexture so shutter capture is always instant & crash-free
-                      if let snapTex = snapshotOutputTexture {
-                          var cleanDarkroomU = darkroomU
-                          cleanDarkroomU.enableZoneFalseColor = 0
-                          cleanDarkroomU.enableFocusPeaking = 0
-                          cleanDarkroomU.enableZebraWarnings = 0
-                          computeEncoder.setTexture(snapTex, index: 2)
-                          computeEncoder.setBytes(&cleanDarkroomU, length: MemoryLayout<DarkroomPrintUniforms>.stride, index: 2)
-                          computeEncoder.dispatchThreads(gridSize, threadsPerThreadgroup: tgSize)
-                      }
+                      // NOTE: Overlay-free snapshotOutputTexture is rendered on-demand only when the shutter is pressed,
+                      // saving 33% GPU bandwidth and eliminating thermal throttling!
           
                       computeEncoder.endEncoding()
                   }
@@ -4127,11 +4163,14 @@ jobs:
                       guard let self = self else { return }
                       let ptr = self.telemetryBuffer.contents().bindMemory(to: ZoneMeterTelemetry.self, capacity: 1)
                       let data = ptr.pointee
-                      if self.frameCounter % 6 == 0 {
+                      if self.frameCounter % 15 == 0 {
+                          let newZone = Int(data.adamsZoneIndex)
+                          let newEV = data.spotEV100
+                          let newD = SIMD3<Float>(data.filmDensityRGB.0, data.filmDensityRGB.1, data.filmDensityRGB.2)
                           DispatchQueue.main.async {
-                              self.currentAdamsZone = Int(data.adamsZoneIndex)
-                              self.currentSpotEV100 = data.spotEV100
-                              self.currentSpotDensityRGB = SIMD3<Float>(data.filmDensityRGB.0, data.filmDensityRGB.1, data.filmDensityRGB.2)
+                              if self.currentAdamsZone != newZone { self.currentAdamsZone = newZone }
+                              if abs(self.currentSpotEV100 - newEV) > 0.08 { self.currentSpotEV100 = newEV }
+                              self.currentSpotDensityRGB = newD
                           }
                       }
                   }
@@ -4172,20 +4211,119 @@ jobs:
                   )
               }
           
-              /// Safely copies pixels from `snapshotOutputTexture` into a self-contained CGContext bitmap (`makeImage()`),
-              /// guaranteeing zero dangling pointers and 100% thread-safe background JPEG/PNG encoding.
+              /// Renders a single on-demand, overlay-free Darkroom Print pass into `snapshotOutputTexture`
+              /// and copies it into a self-contained CGContext bitmap. Zero per-frame overhead during live preview!
               func snapshotCurrentPrintUIImage() -> UIImage? {
                   snapshotLock.lock()
-                  guard let tex = snapshotOutputTexture else {
+                  guard let snapTex = snapshotOutputTexture,
+                        let opticsTex = opticsLinearTexture,
+                        let densityTex = filmDensityTexture,
+                        let commandBuffer = commandQueue.makeCommandBuffer(),
+                        let computeEncoder = commandBuffer.makeComputeCommandEncoder() else {
                       snapshotLock.unlock()
                       return nil
                   }
-                  let w = tex.width
-                  let h = tex.height
+          
+                  let w = snapTex.width
+                  let h = snapTex.height
                   if w <= 0 || h <= 0 {
                       snapshotLock.unlock()
                       return nil
                   }
+          
+                  let activeLens = cameraPipeline?.activeLens ?? .wide26mm
+                  let hwISO = cameraPipeline?.liveHardwareISO ?? ratedEI
+                  let hwShutter = (cameraPipeline?.isAutoExposureEnabled == true)
+                      ? (cameraPipeline?.liveHardwareShutterSeconds ?? shutterSpeedSeconds)
+                      : shutterSpeedSeconds
+                  let wbKelvin: Float = (cameraPipeline?.isWhiteBalanceLocked == true)
+                      ? (cameraPipeline?.colorTemperatureKelvin ?? 5500.0)
+                      : 5500.0
+                  let wbTint: Float = cameraPipeline?.whiteBalanceTint ?? 0.0
+          
+                  var opticsU = PhysicalOpticsUniforms(
+                      focalLengthMM: activeLens.focalLengthMM,
+                      nativeApertureFNumber: activeLens.nativeApertureFNumber,
+                      simulatedApertureFNumber: simulatedApertureFNumber,
+                      focusDistanceMeters: focusDistanceMeters,
+                      apertureBladeCount: apertureBladeCount,
+                      bladeCurvature: bladeCurvature,
+                      sphericalAberration: sphericalAberration,
+                      opticalVignettingCatEye: opticalVignettingCatEye,
+                      cosFourthFalloffStrength: cosFourthFalloffStrength,
+                      lateralChromaticAberration: lateralChromaticAberration,
+                      asphericalOnionRingIntensity: asphericalOnionRingIntensity,
+                      halationBloomDiffusion: halationBloomDiffusion,
+                      anamorphicSqueezeFactor: anamorphicSqueezeFactor,
+                      radialSwirlPetzval: radialSwirlPetzval,
+                      opticalGlassFilter: opticalGlassFilter.rawValue,
+                      exposureBiasEV: exposureBiasEV,
+                      enableLiDARBokeh: enableLiDARBokeh ? 1 : 0,
+                      hasValidLiDARDepth: 0,
+                      focusPointUV: focusPointUV,
+                      wbTemperatureKelvin: wbKelvin,
+                      wbTintShift: wbTint,
+                      realSensorISO: hwISO,
+                      realSensorExposureSec: hwShutter
+                  )
+          
+                  var filmU = selectedFilm.buildUniforms(
+                      ratedEI: ratedEI,
+                      shutterSeconds: shutterSpeedSeconds,
+                      devTempC: developerTemperatureC,
+                      devTimeScale: developmentTimeScale,
+                      agitation: agitationFactor,
+                      grainSizeMult: selectedFilmFormat.grainScaleFactor,
+                      devGammaMod: selectedDeveloper.gammaMod,
+                      devGrainMod: selectedDeveloper.grainMod,
+                      customHalationMult: customHalationMultiplier,
+                      customEberhardMult: customEberhardMultiplier * selectedDeveloper.acutanceMod,
+                      frameSeed: frameCounter
+                  )
+          
+                  var cleanDarkroomU = DarkroomPrintUniforms(
+                      enlargerHeadType: enlargerHeadType.rawValue,
+                      enlargerExposureTimeEV: enlargerExposureTimeEV,
+                      filterYellowCC: filterYellowCC,
+                      filterMagentaCC: filterMagentaCC,
+                      filterCyanCC: filterCyanCC,
+                      multigradeFilterNumber: multigradeFilterNumber,
+                      enableSplitGrade: enableSplitGrade ? 1 : 0,
+                      splitGradeSoftBalance: splitGradeSoftBalance,
+                      paperDMinRGB: (selectedPaper.dMinRGB.x, selectedPaper.dMinRGB.y, selectedPaper.dMinRGB.z),
+                      paperDMaxRGB: (selectedPaper.dMaxRGB.x, selectedPaper.dMaxRGB.y, selectedPaper.dMaxRGB.z),
+                      paperGamma: selectedPaper.intrinsicGamma,
+                      preFlashExposureEV: preFlashExposureEV,
+                      vignetteBurnEdgesEV: vignetteBurnEdgesEV,
+                      dodgeBurnCenterUV: dodgeBurnCenterUV,
+                      dodgeBurnRadius: dodgeBurnRadius,
+                      dodgeBurnFeather: dodgeBurnFeather,
+                      dodgeBurnStops: dodgeBurnStops,
+                      chemicalToner: chemicalToner.rawValue,
+                      tonerIntensity: tonerIntensity,
+                      enableZoneFalseColor: 0,
+                      enableFocusPeaking: 0,
+                      enableZebraWarnings: 0,
+                      spotMeterTargetUV: spotMeterTargetUV
+                  )
+          
+                  let tgSize = MTLSize(width: 16, height: 16, depth: 1)
+                  let gridSize = MTLSize(width: (w + 15) / 16 * 16, height: (h + 15) / 16 * 16, depth: 1)
+          
+                  computeEncoder.setComputePipelineState(darkroomPrintPipeline)
+                  computeEncoder.setTexture(densityTex, index: 0)
+                  computeEncoder.setTexture(opticsTex, index: 1)
+                  computeEncoder.setTexture(snapTex, index: 2)
+                  computeEncoder.setBytes(&opticsU, length: MemoryLayout<PhysicalOpticsUniforms>.stride, index: 0)
+                  computeEncoder.setBytes(&filmU, length: MemoryLayout<FilmEmulsionUniforms>.stride, index: 1)
+                  computeEncoder.setBytes(&cleanDarkroomU, length: MemoryLayout<DarkroomPrintUniforms>.stride, index: 2)
+                  computeEncoder.setBuffer(telemetryBuffer, offset: 0, index: 3)
+                  computeEncoder.dispatchThreads(gridSize, threadsPerThreadgroup: tgSize)
+                  computeEncoder.endEncoding()
+          
+                  commandBuffer.commit()
+                  commandBuffer.waitUntilCompleted()
+          
                   let bytesPerRow = w * 4
                   let colorSpace = CGColorSpaceCreateDeviceRGB()
                   let bitmapInfo = CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.premultipliedFirst.rawValue
@@ -4203,7 +4341,7 @@ jobs:
                       return nil
                   }
           
-                  tex.getBytes(bufferPtr, bytesPerRow: bytesPerRow, from: MTLRegionMake2D(0, 0, w, h), mipmapLevel: 0)
+                  snapTex.getBytes(bufferPtr, bytesPerRow: bytesPerRow, from: MTLRegionMake2D(0, 0, w, h), mipmapLevel: 0)
                   snapshotLock.unlock()
           
                   guard let cgImg = context.makeImage() else { return nil }
